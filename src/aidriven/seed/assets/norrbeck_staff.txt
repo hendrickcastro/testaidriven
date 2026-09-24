@@ -1,0 +1,129 @@
+NORRBECK INSTRUMENTS - STAFF DIRECTORY (snapshot 2025-01-01)
+Fictional company. Department shown is the home department on 2025-01-01.
+
+ID      | Name                 | Department               | With company since
+--------+----------------------+--------------------------+-------------------
+E-1001  | Cato Norgaard        | Research & Development   | 2014-01-01
+E-1002  | Tamsin Morrow        | Finance                  | 2017-05-01
+E-1003  | Fenna Quist          | Finance                  | 2012-08-01
+E-1004  | Fenna Elsted         | Human Resources          | 2024-11-01
+E-1005  | Pell Dunmore         | Research & Development   | 2014-09-01
+E-1006  | Emrys Farrow         | Research & Development   | 2017-02-01
+E-1007  | Fenna Wexley         | Logistics                | 2023-10-01
+E-1008  | Vesna Umber          | Logistics                | 2019-01-01
+E-1009  | Eskil Ibsen          | Sales                    | 2012-06-01
+E-1010  | Delphine Farrow      | Human Resources          | 2017-11-01
+E-1011  | Liv Tallis           | Research & Development   | 2018-07-01
+E-1012  | Kaelen Yorke         | Sales                    | 2024-03-01
+E-1013  | Rasmus Pardo         | Sales                    | 2019-02-01
+E-1014  | Ansel Yorke          | Manufacturing            | 2019-05-01
+E-1015  | Fenna Tallis         | Logistics                | 2016-08-01
+E-1016  | Ilro Corvan          | Research & Development   | 2013-12-01
+E-1017  | Maren Norgaard       | Customer Support         | 2019-08-01
+E-1018  | Hesper Pardo         | Logistics                | 2013-10-01
+E-1019  | Oriel Norgaard       | Human Resources          | 2018-04-01
+E-1020  | Cato Holt            | Sales                    | 2023-04-01
+E-1021  | Quilla Morrow        | Research & Development   | 2013-05-01
+E-1022  | Delphine Brenn       | Human Resources          | 2015-02-01
+E-1023  | Niko Adler           | Customer Support         | 2012-12-01
+E-1024  | Rasmus Norgaard      | Human Resources          | 2022-10-01
+E-1025  | Galen Ibsen          | Customer Support         | 2018-08-01
+E-1026  | Galen Norgaard       | Research & Development   | 2017-04-01
+E-1027  | Fenna Norgaard       | Manufacturing            | 2020-01-01
+E-1028  | Ulric Dunmore        | Manufacturing            | 2019-10-01
+E-1029  | Hesper Ostrin        | Sales                    | 2022-05-01
+E-1030  | Dalia Ravel          | Human Resources          | 2023-03-01
+E-1031  | Cato Adler           | Research & Development   | 2012-03-01
+E-1032  | Brisk Quist          | Finance                  | 2014-04-01
+E-1033  | Hesper Kessel        | Sales                    | 2024-03-01
+E-1034  | Kaelen Dunmore       | Logistics                | 2019-08-01
+E-1035  | Delphine Tallis      | Research & Development   | 2016-05-01
+E-1036  | Hesper Wexley        | Research & Development   | 2017-02-01
+E-1037  | Brin Voss            | Logistics                | 2022-11-01
+E-1038  | Sefa Elsted          | Logistics                | 2022-02-01
+E-1039  | Emrys Corvan         | Human Resources          | 2017-02-01
+E-1040  | Alba Yorke           | Finance                  | 2014-05-01
+E-1041  | Niko Grell           | Research & Development   | 2023-09-01
+E-1042  | Cato Farrow          | Logistics                | 2020-10-01
+E-1043  | Oriel Morrow         | Logistics                | 2019-02-01
+E-1044  | Cato Dunmore         | Manufacturing            | 2015-05-01
+E-1045  | Wren Brenn           | Manufacturing            | 2016-07-01
+E-1046  | Tamsin Norgaard      | Research & Development   | 2014-05-01
+E-1047  | Zev Elsted           | Research & Development   | 2024-11-01
+E-1048  | Pell Brenn           | Sales                    | 2019-09-01
+E-1049  | Maren Farrow         | Manufacturing            | 2014-03-01
+E-1050  | Kaelen Norgaard      | Customer Support         | 2015-11-01
+E-1051  | Hesper Lund          | Research & Development   | 2019-02-01
+E-1052  | Jorun Quist          | Customer Support         | 2024-04-01
+E-1053  | Zev Grell            | Customer Support         | 2016-11-01
+E-1054  | Jorun Brenn          | Customer Support         | 2014-08-01
+E-1055  | Brin Corvan          | Finance                  | 2018-12-01
+E-1056  | Emrys Wexley         | Research & Development   | 2017-02-01
+E-1057  | Eskil Corvan         | Logistics                | 2022-02-01
+E-1058  | Hesper Holt          | Logistics                | 2021-01-01
+E-1059  | Kaelen Sorby         | Manufacturing            | 2021-08-01
+E-1060  | Alba Norgaard        | Finance                  | 2014-11-01
+E-1061  | Brin Umber           | Research & Development   | 2020-05-01
+E-1062  | Quilla Brenn         | Human Resources          | 2019-11-01
+E-1063  | Quilla Ostrin        | Research & Development   | 2012-03-01
+E-1064  | Oriel Grell          | Sales                    | 2016-05-01
+E-1065  | Galen Voss           | Finance                  | 2018-05-01
+E-1066  | Quilla Adler         | Research & Development   | 2015-05-01
+E-1067  | Niko Umber           | Research & Development   | 2021-08-01
+E-1068  | Vesna Zeller         | Manufacturing            | 2019-01-01
+E-1069  | Kaelen Adler         | Customer Support         | 2016-05-01
+E-1070  | Oriel Ostrin         | Research & Development   | 2017-08-01
+E-1071  | Liv Pardo            | Research & Development   | 2017-03-01
+E-1072  | Fenna Voss           | Research & Development   | 2022-11-01
+E-1073  | Ilro Sorby           | Manufacturing            | 2016-08-01
+E-1074  | Alba Adler           | Sales                    | 2021-02-01
+E-1075  | Brin Yorke           | Finance                  | 2013-03-01
+E-1076  | Ilro Quist           | Research & Development   | 2014-10-01
+E-1077  | Vesna Farrow         | Research & Development   | 2013-03-01
+E-1078  | Jorun Umber          | Research & Development   | 2023-02-01
+E-1079  | Quilla Pardo         | Finance                  | 2013-12-01
+E-1080  | Rasmus Brenn         | Logistics                | 2015-08-01
+E-1081  | Hesper Ravel         | Research & Development   | 2019-05-01
+E-1082  | Maren Jarvik         | Customer Support         | 2013-09-01
+E-1083  | Galen Ravel          | Manufacturing            | 2013-04-01
+E-1084  | Liv Grell            | Sales                    | 2017-01-01
+E-1085  | Sefa Ibsen           | Logistics                | 2014-08-01
+E-1086  | Pell Yorke           | Research & Development   | 2014-06-01
+E-1087  | Delphine Sorby       | Manufacturing            | 2017-02-01
+E-1088  | Rasmus Adler         | Finance                  | 2013-08-01
+E-1089  | Dalia Adler          | Human Resources          | 2017-07-01
+E-1090  | Liv Ravel            | Manufacturing            | 2012-08-01
+E-1091  | Brin Lund            | Research & Development   | 2016-11-01
+E-1092  | Niko Holt            | Finance                  | 2013-10-01
+E-1093  | Delphine Elsted      | Sales                    | 2019-08-01
+E-1094  | Pell Kessel          | Customer Support         | 2022-07-01
+E-1095  | Oriel Corvan         | Customer Support         | 2016-12-01
+E-1096  | Delphine Corvan      | Research & Development   | 2022-03-01
+
+INTERNAL TRANSFERS ANNOUNCED IN H1 2025
+
+An employee belongs to the new department from the effective date (inclusive).
+
+Notice T-01: E-1057 moves from Logistics to Human Resources, effective 2025-03-09.
+Notice T-02: E-1095 moves from Customer Support to Research & Development, effective 2025-03-11.
+Notice T-03: E-1047 moves from Research & Development to Customer Support, effective 2025-03-17.
+Notice T-04: E-1053 moves from Customer Support to Research & Development, effective 2025-03-23.
+Notice T-05: E-1018 moves from Logistics to Research & Development, effective 2025-03-24.
+Notice T-06: E-1064 moves from Sales to Manufacturing, effective 2025-04-13.
+Notice T-07: E-1008 moves from Logistics to Human Resources, effective 2025-04-25.
+Notice T-08: E-1030 moves from Human Resources to Logistics, effective 2025-04-27.
+Notice T-09: E-1087 moves from Manufacturing to Research & Development, effective 2025-05-15.
+Notice T-10: E-1076 moves from Research & Development to Finance, effective 2025-05-18.
+Notice T-11: E-1077 moves from Research & Development to Manufacturing, effective 2025-06-05.
+Notice T-12: E-1088 moves from Finance to Research & Development, effective 2025-06-05.
+Notice T-13: E-1084 moves from Sales to Research & Development, effective 2025-06-10.
+Notice T-14: E-1065 moves from Finance to Customer Support, effective 2025-06-15.
+Notice T-15: E-1033 moves from Sales to Finance, effective 2025-06-22.
+Notice T-16: E-1014 moves from Manufacturing to Research & Development, effective 2025-06-23.
+Notice T-17: E-1063 moves from Research & Development to Logistics, effective 2025-06-25.
+Notice T-18: E-1046 moves from Research & Development to Customer Support, effective 2025-06-27.
+
+CANCELLATIONS
+
+Notice T-17 (E-1063) was withdrawn before its effective date; the employee stays in Research & Development.
+Notice T-11 (E-1077) was withdrawn before its effective date; the employee stays in Research & Development.

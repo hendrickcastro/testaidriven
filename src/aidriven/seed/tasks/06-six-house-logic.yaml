@@ -1,0 +1,276 @@
+slug: six-house-logic
+title: Six-house logic puzzle with a unique solution
+category: reasoning
+difficulty: hard
+expected_artifact: text
+tags:
+- logic
+- constraint-satisfaction
+- deduction
+prompt: |
+  Six houses stand in a row, numbered 1 to 6 from left to right. Each house has exactly one resident, and
+  every attribute value below belongs to exactly one house:
+
+    - name: Ava, Bruno, Chiara, Dmitri, Elif, Farid
+    - color: red, green, blue, yellow, white, black
+    - pet: cat, dog, parrot, rabbit, turtle, hamster
+    - drink: tea, coffee, milk, juice, water, cocoa
+    - instrument: piano, violin, cello, flute, drums, harp
+
+  "Directly to the left of" means in the house with the number one lower. "Next to" means in an adjacent house.
+  "Exactly one house separates X and Y" means their house numbers differ by exactly 2. "Somewhere to the left of"
+  means in any house with a lower number.
+
+  Clues:
+    1. The violin player lives somewhere to the left of the person in the yellow house.
+    2. The rabbit owner is the harp player.
+    3. Exactly one house separates the violin player and the turtle owner.
+    4. The coffee drinker lives in an even-numbered house.
+    5. The person in the red house is the cocoa drinker.
+    6. The violin player lives somewhere to the left of the cocoa drinker.
+    7. Farid lives next to the harp player.
+    8. The cocoa drinker lives in one of the two end houses.
+    9. The hamster owner is Ava.
+    10. Exactly one house separates the hamster owner and Elif.
+    11. The cello player is the coffee drinker.
+    12. The dog owner lives next to the water drinker.
+    13. The hamster owner is the tea drinker.
+    14. The violin player is the tea drinker.
+    15. The hamster owner lives next to Dmitri.
+    16. The dog owner is the person in the green house.
+    17. The water drinker lives somewhere to the left of the harp player.
+    18. The juice drinker lives in one of the two end houses.
+    19. The turtle owner lives somewhere to the left of the piano player.
+    20. The person in the white house is Chiara.
+    21. The coffee drinker lives somewhere to the left of the person in the blue house.
+    22. The person in the yellow house lives next to the drums player.
+    23. The tea drinker lives directly to the left of the cat owner.
+
+  The clues have exactly one solution. Deduce the complete assignment.
+
+  Output format (strict):
+  - First, your reasoning (any length).
+  - Then a fenced ```json block containing the full solution as an object whose keys are the house numbers "1" to
+    "6" and whose values are objects with exactly the keys "name", "color", "pet", "drink" and "instrument"
+    (values spelled exactly as in the lists above, lowercase except the names).
+  - The very last line of your response must be `FINAL ANSWER: ` followed by the six names in house order 1 to 6,
+    separated by commas without spaces, e.g. `FINAL ANSWER: Ava,Bruno,Chiara,Dmitri,Elif,Farid`.
+rubric: |
+  Score 1-10. Correctness of the full assignment (all 30 attribute placements), soundness of the deduction chain (each step justified by specific clues, no unjustified guesses presented as facts, contradictions properly used when case splitting), and strict adherence to the output format (json block + last line).
+reference_answer: |
+  Unique solution (house: name, color, pet, drink, instrument): 1: Elif, black, turtle, juice, flute; 2: Chiara, white, parrot, coffee, cello; 3: Ava, blue, hamster, tea, violin; 4: Dmitri, yellow, cat, water, piano; 5: Farid, green, dog, milk, drums; 6: Bruno, red, rabbit, cocoa, harp. FINAL ANSWER: Elif,Chiara,Ava,Dmitri,Farid,Bruno
+checks:
+- kind: python_verifier
+  name: residents in the right houses
+  dimension: intelligence
+  weight: 2
+  timeout_s: 30
+  code: |
+    import re
+    from aidriven_harness import case, report, final_answer
+
+    EXPECTED = ['Elif', 'Chiara', 'Ava', 'Dmitri', 'Farid', 'Bruno']
+
+    @case("house order of the six residents")
+    def _():
+        ans = final_answer()
+        assert ans, "no FINAL ANSWER line"
+        got = [x for x in re.split(r"[\s,;]+", ans.strip().strip(".")) if x]
+        assert [g.casefold() for g in got] == [e.casefold() for e in EXPECTED], f"got {got}"
+
+    report()
+- kind: python_verifier
+  name: full grid correct (per attribute)
+  dimension: intelligence
+  weight: 2
+  timeout_s: 30
+  code: |
+    import json
+    import re
+    from aidriven_harness import case, report, response_text
+
+    EXPECTED = {"1": {"name": "Elif", "color": "black", "pet": "turtle", "drink": "juice", "instrument": "flute"}, "2": {"name": "Chiara", "color": "white", "pet": "parrot", "drink": "coffee", "instrument": "cello"}, "3": {"name": "Ava", "color": "blue", "pet": "hamster", "drink": "tea", "instrument": "violin"}, "4": {"name": "Dmitri", "color": "yellow", "pet": "cat", "drink": "water", "instrument": "piano"}, "5": {"name": "Farid", "color": "green", "pet": "dog", "drink": "milk", "instrument": "drums"}, "6": {"name": "Bruno", "color": "red", "pet": "rabbit", "drink": "cocoa", "instrument": "harp"}}
+
+    def solution():
+        blocks = re.findall(r"```json\s*\n(.*?)```", response_text(), re.S)
+        assert blocks, "no ```json block"
+        data = json.loads(blocks[-1])
+        assert isinstance(data, dict), "json is not an object"
+        return {str(k): v for k, v in data.items()}
+
+    for cat in ["name", "color", "pet", "drink", "instrument"]:
+        @case(f"all six '{cat}' values placed correctly")
+        def _(cat=cat):
+            data = solution()
+            wrong = [h for h in EXPECTED if str(data.get(h, {}).get(cat, "")).strip().casefold() != EXPECTED[h][cat].casefold()]
+            assert not wrong, f"wrong houses for {cat}: {wrong}"
+
+    report()
+- kind: json_schema
+  name: solution json block matches the schema
+  dimension: conformity
+  schema:
+    type: object
+    required:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    additionalProperties: false
+    properties:
+      '1':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: &id001
+            - Ava
+            - Bruno
+            - Chiara
+            - Dmitri
+            - Elif
+            - Farid
+          color:
+            enum: &id002
+            - red
+            - green
+            - blue
+            - yellow
+            - white
+            - black
+          pet:
+            enum: &id003
+            - cat
+            - dog
+            - parrot
+            - rabbit
+            - turtle
+            - hamster
+          drink:
+            enum: &id004
+            - tea
+            - coffee
+            - milk
+            - juice
+            - water
+            - cocoa
+          instrument:
+            enum: &id005
+            - piano
+            - violin
+            - cello
+            - flute
+            - drums
+            - harp
+      '2':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: *id001
+          color:
+            enum: *id002
+          pet:
+            enum: *id003
+          drink:
+            enum: *id004
+          instrument:
+            enum: *id005
+      '3':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: *id001
+          color:
+            enum: *id002
+          pet:
+            enum: *id003
+          drink:
+            enum: *id004
+          instrument:
+            enum: *id005
+      '4':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: *id001
+          color:
+            enum: *id002
+          pet:
+            enum: *id003
+          drink:
+            enum: *id004
+          instrument:
+            enum: *id005
+      '5':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: *id001
+          color:
+            enum: *id002
+          pet:
+            enum: *id003
+          drink:
+            enum: *id004
+          instrument:
+            enum: *id005
+      '6':
+        type: object
+        required:
+        - name
+        - color
+        - pet
+        - drink
+        - instrument
+        additionalProperties: false
+        properties:
+          name:
+            enum: *id001
+          color:
+            enum: *id002
+          pet:
+            enum: *id003
+          drink:
+            enum: *id004
+          instrument:
+            enum: *id005
+- kind: regex
+  name: 'last line is exactly FINAL ANSWER: six names'
+  dimension: conformity
+  pattern: '(?:^|\n)FINAL ANSWER: (?:Ava|Bruno|Chiara|Dmitri|Elif|Farid)(?:,(?:Ava|Bruno|Chiara|Dmitri|Elif|Farid)){5}\s*$'

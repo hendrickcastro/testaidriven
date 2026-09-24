@@ -1,0 +1,321 @@
+slug: concurrent-cache-debug
+title: Fix a buggy tokenizer and a racy memoizing LRU cache
+category: debugging
+difficulty: extreme
+expected_artifact: python
+artifact_names: [cachekit.py]
+tags: [debugging, concurrency, threading, off-by-one, python]
+prompt: |
+  The following module `cachekit.py` is used in production:
+
+  ```python
+  """cachekit: a tiny tokenizer and a thread-safe memoizing LRU cache."""
+
+  import threading
+  from collections import OrderedDict
+
+
+  def tokenize(text):
+      """Split `text` into tokens and return a list of (kind, value, offset) tuples.
+
+      Kinds:
+        "num"   integer or decimal: digits, optionally followed by "." and at least one digit ("12", "3.25").
+                "7." is the number "7" followed by the punctuation ".".
+        "ident" [A-Za-z_][A-Za-z0-9_]*
+        "str"   a double-quoted string; backslash escapes the next character. The value keeps the quotes and
+                escapes exactly as written, e.g. '"a\\"b"'.
+        "punct" any other single non-whitespace character.
+      Whitespace separates tokens and is dropped. `offset` is the index of the token's first character.
+      Raises ValueError if a string is not terminated.
+      """
+      tokens = []
+      i, n = 0, len(text)
+      while i < n:
+          ch = text[i]
+          if ch.isspace():
+              i += 1
+          elif ch.isdigit():
+              j = i
+              while j < n - 1 and text[j].isdigit():
+                  j += 1
+              if j < n - 1 and text[j] == "." and text[j + 1].isdigit():
+                  j += 1
+                  while j < n and text[j].isdigit():
+                      j += 1
+              tokens.append(("num", text[i:j], i))
+              i = j
+          elif ch.isalpha() or ch == "_":
+              j = i + 1
+              while j < n and (text[j].isalnum() or text[j] == "_"):
+                  j += 1
+              tokens.append(("ident", text[i:j], i))
+              i = j
+          elif ch == '"':
+              j = i + 1
+              while True:
+                  j = text.find('"', j)
+                  if j == -1:
+                      raise ValueError(f"unterminated string at {i}")
+                  if text[j - 1] != "\\":
+                      break
+                  j += 1
+              tokens.append(("str", text[i : j + 1], i))
+              i = j + 1
+          else:
+              tokens.append(("punct", ch, i))
+              i += 1
+      return tokens
+
+
+  class MemoCache:
+      """Thread-safe memoizing cache with LRU eviction.
+
+      get_or_compute(key, fn):
+        * returns the cached value for `key` if present (a hit; it becomes the most recently used entry);
+        * otherwise calls fn() once, stores and returns its result (a miss).
+        Guarantees under concurrency:
+        * fn is never running twice at the same time for the same key: callers that ask for a key whose value is
+          being computed wait for that computation and receive its result (or its exception). Such waiting callers
+          count as hits.
+        * computations for different keys run in parallel (no lock is held while fn runs), and fn itself may call
+          get_or_compute for other keys.
+        * if fn raises, the exception propagates to the caller and to every waiting caller, nothing is cached, and
+          a later call computes again.
+      put(key, value): insert or overwrite; the entry becomes the most recently used.
+      At most `capacity` entries are kept; inserting beyond that evicts the least recently used entry.
+      stats() returns {"hits": int, "misses": int, "evictions": int, "size": int}.
+      """
+
+      def __init__(self, capacity):
+          if capacity < 1:
+              raise ValueError("capacity must be >= 1")
+          self._capacity = capacity
+          self._data = OrderedDict()
+          self._lock = threading.Lock()
+          self._hits = 0
+          self._misses = 0
+          self._evictions = 0
+
+      def _store(self, key, value):
+          self._data[key] = value
+          if len(self._data) > self._capacity:
+              self._data.popitem(last=False)
+              self._evictions += 1
+
+      def get_or_compute(self, key, fn):
+          with self._lock:
+              if key in self._data:
+                  self._hits += 1
+                  self._data.move_to_end(key)
+                  return self._data[key]
+          # Not cached: compute outside the lock so other keys are not blocked.
+          value = fn()
+          with self._lock:
+              self._misses += 1
+              self._store(key, value)
+          return value
+
+      def put(self, key, value):
+          with self._lock:
+              self._store(key, value)
+
+      def get(self, key, default=None):
+          """Return the cached value (counts as a use, not as a hit) or `default`."""
+          with self._lock:
+              if key in self._data:
+                  self._data.move_to_end(key)
+                  return self._data[key]
+              return default
+
+      def __len__(self):
+          with self._lock:
+              return len(self._data)
+
+      def stats(self):
+          with self._lock:
+              return {"hits": self._hits, "misses": self._misses, "evictions": self._evictions, "size": len(self._data)}
+  ```
+
+  Users report three symptoms: tokenize() never returns on some inputs, some valid string literals are
+  rejected, and an expensive computation is sometimes executed several times concurrently for the same key.
+  There may be more problems than the reported ones. Find and fix ALL the bugs so that the module behaves exactly
+  as its docstrings specify, including under heavy multi-threaded use. Keep the public API (names, signatures,
+  return formats) unchanged and keep it standard-library only. Return the complete corrected module as
+  `cachekit.py`, and briefly list each bug you fixed.
+rubric: |
+  Score 1-10. Did the model find and correctly fix every bug: (1) number scanning drops a final digit
+  (`j < n - 1`), (2) string scanning mishandles an escaped backslash before the closing quote, (3) put() on an
+  existing key does not refresh LRU recency, (4) get_or_compute computes the same key concurrently several times.
+  The concurrency fix must deduplicate in-flight computations WITHOUT holding the lock while fn runs (holding it
+  serialises different keys and deadlocks nested calls), propagate exceptions to waiters without caching, count
+  waiters as hits, and keep stats consistent. Reward a clear explanation of each bug; penalise API changes or
+  new bugs.
+reference_answer: |
+  Fixes: `while j < n and text[j].isdigit()`; scan strings char by char (`\` skips two chars, stop at an unescaped
+  quote, raise at end of text); `_store` calls `move_to_end(key)` after assignment; get_or_compute keeps an
+  `_inflight` dict key -> record with a threading.Event: under the lock, a hit returns, an existing in-flight record
+  makes the caller a waiter (hit) that waits outside the lock and returns the value or re-raises the error; otherwise
+  the caller registers a record (miss), runs fn outside the lock, then under the lock removes the record and stores
+  the value (or on exception removes the record, stores the error and sets the event, re-raising).
+checks:
+  - kind: python_tests
+    name: hidden regression and stress tests
+    dimension: intelligence
+    timeout_s: 180
+    code: |
+      import random
+      import threading
+      import time
+      from aidriven_harness import case, report, load_module
+
+      ck = load_module("cachekit.py")
+
+      def run_threads(n, target, timeout=10.0):
+          results, errors = [None] * n, [None] * n
+          def wrap(i):
+              try:
+                  results[i] = target(i)
+              except BaseException as exc:  # noqa: BLE001
+                  errors[i] = exc
+          threads = [threading.Thread(target=wrap, args=(i,), daemon=True) for i in range(n)]
+          for t in threads:
+              t.start()
+          deadline = time.monotonic() + timeout
+          for t in threads:
+              t.join(max(0.0, deadline - time.monotonic()))
+          assert not any(t.is_alive() for t in threads), "threads still running: deadlock or excessive blocking"
+          return results, errors
+
+      @case("tokenize: basics")
+      def _():
+          assert ck.tokenize("x = 42") == [("ident", "x", 0), ("punct", "=", 2), ("num", "42", 4)]
+          assert ck.tokenize("7") == [("num", "7", 0)]
+          assert ck.tokenize("") == []
+
+      @case("tokenize: numbers")
+      def _():
+          assert ck.tokenize("3.25+10") == [("num", "3.25", 0), ("punct", "+", 4), ("num", "10", 5)]
+          assert ck.tokenize("7.") == [("num", "7", 0), ("punct", ".", 1)]
+          assert ck.tokenize("f(12,3.5)") == [("ident", "f", 0), ("punct", "(", 1), ("num", "12", 2), ("punct", ",", 4), ("num", "3.5", 5), ("punct", ")", 8)]
+          assert ck.tokenize("a1 99") == [("ident", "a1", 0), ("num", "99", 3)]
+
+      @case("tokenize: strings and escapes")
+      def _():
+          assert ck.tokenize('"a\\"b"') == [("str", '"a\\"b"', 0)]
+          assert ck.tokenize('s = "x\\\\"') == [("ident", "s", 0), ("punct", "=", 2), ("str", '"x\\\\"', 4)]
+          assert ck.tokenize('"\\\\" "q"') == [("str", '"\\\\"', 0), ("str", '"q"', 5)]
+          assert ck.tokenize('""') == [("str", '""', 0)]
+
+      @case("tokenize: unterminated strings raise")
+      def _():
+          for bad in ('"abc', '"abc\\"', '"x\\'):
+              try:
+                  ck.tokenize(bad)
+              except ValueError:
+                  continue
+              raise AssertionError(f"{bad!r} should raise ValueError")
+
+      @case("LRU: overwrite with put refreshes recency")
+      def _():
+          c = ck.MemoCache(2)
+          c.put("a", 1)
+          c.put("b", 2)
+          c.put("a", 3)
+          c.put("c", 4)
+          assert c.get("b") is None and c.get("a") == 3 and c.get("c") == 4
+          assert c.stats()["evictions"] == 1
+
+      @case("LRU: hits refresh recency, capacity respected")
+      def _():
+          c = ck.MemoCache(2)
+          assert c.get_or_compute("a", lambda: 1) == 1
+          assert c.get_or_compute("b", lambda: 2) == 2
+          assert c.get_or_compute("a", lambda: 99) == 1
+          c.get_or_compute("c", lambda: 3)
+          assert c.get("b") is None and c.get("a") == 1 and len(c) == 2
+          s = c.stats()
+          assert (s["hits"], s["misses"], s["evictions"], s["size"]) == (1, 3, 1, 2), s
+
+      @case("same key concurrently: computed exactly once", weight=2)
+      def _():
+          c = ck.MemoCache(10)
+          calls = []
+          def slow():
+              calls.append(1)
+              time.sleep(0.3)
+              return "v"
+          res, errs = run_threads(12, lambda i: c.get_or_compute("k", slow))
+          assert not any(errs), errs
+          assert res == ["v"] * 12
+          assert len(calls) == 1, f"computed {len(calls)} times"
+          s = c.stats()
+          assert s["hits"] == 11 and s["misses"] == 1, s
+
+      @case("different keys compute in parallel", weight=2)
+      def _():
+          c = ck.MemoCache(20)
+          t0 = time.monotonic()
+          def work(i):
+              return c.get_or_compute(i, lambda: (time.sleep(0.4), i * 10)[1])
+          res, errs = run_threads(8, work)
+          elapsed = time.monotonic() - t0
+          assert not any(errs), errs
+          assert res == [i * 10 for i in range(8)]
+          assert elapsed < 1.5, f"8 independent 0.4s computations took {elapsed:.2f}s: they are serialised"
+
+      @case("fn may call get_or_compute for another key", weight=2)
+      def _():
+          c = ck.MemoCache(10)
+          def outer():
+              return c.get_or_compute("inner", lambda: 5) + 1
+          res, errs = run_threads(1, lambda i: c.get_or_compute("outer", outer), timeout=5)
+          assert errs == [None] and res == [6], (res, errs)
+
+      @case("exceptions reach every waiter and are not cached", weight=2)
+      def _():
+          c = ck.MemoCache(10)
+          calls = []
+          def boom():
+              calls.append(1)
+              time.sleep(0.3)
+              raise ValueError("boom")
+          res, errs = run_threads(6, lambda i: c.get_or_compute("k", boom))
+          assert all(isinstance(e, ValueError) for e in errs), errs
+          assert len(calls) == 1, f"failing fn ran {len(calls)} times"
+          assert c.get("k") is None and len(c) == 0
+          assert c.get_or_compute("k", lambda: 42) == 42
+          assert c.get("k") == 42
+
+      @case("stress: 16 threads x 400 random calls", weight=3, timeout=60)
+      def _():
+          c = ck.MemoCache(8)
+          active = {}
+          guard = threading.Lock()
+          overlaps = []
+          def make(key):
+              def fn():
+                  with guard:
+                      active[key] = active.get(key, 0) + 1
+                      if active[key] > 1:
+                          overlaps.append(key)
+                  time.sleep(0.0005 if key % 3 == 0 else 0)
+                  with guard:
+                      active[key] -= 1
+                  return key * 3
+              return fn
+          def worker(i):
+              rng = random.Random(i)
+              for _ in range(400):
+                  k = rng.randrange(40)
+                  v = c.get_or_compute(k, make(k))
+                  assert v == k * 3, (k, v)
+              return True
+          res, errs = run_threads(16, worker, timeout=50)
+          assert not any(errs), [e for e in errs if e][:3]
+          assert not overlaps, f"concurrent duplicate computations for keys {sorted(set(overlaps))[:10]}"
+          s = c.stats()
+          assert s["size"] <= 8 and len(c) == s["size"], s
+          assert s["hits"] + s["misses"] == 16 * 400, s
+          assert s["evictions"] == s["misses"] - s["size"], s
+
+      report()

@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- testaidriven ---
+# Credenciales: nunca al repo
+config/algoritxia.json
+*.sa.json
+*serviceAccount*.json
+# Datos locales de la app (SQLite, artefactos, secretos subidos, logs)
+data/
+# NiceGUI per-browser storage
+.nicegui/

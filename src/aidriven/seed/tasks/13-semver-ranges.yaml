@@ -1,0 +1,193 @@
+slug: semver-ranges
+title: SemVer 2.0.0 precedence and npm-style ranges, to the letter
+category: spec-compliance
+difficulty: hard
+expected_artifact: python
+artifact_names: [semver.py]
+tags: [spec, semver, parsing, edge-cases, python]
+prompt: |
+  Implement the following specification in a Python 3.12 module `semver.py` (standard library only).
+
+  ## 1. Versions (strict SemVer 2.0.0)
+  `parse(s: str) -> tuple` returns `(major, minor, patch, prerelease, build)` where major/minor/patch are ints,
+  `prerelease` is a tuple of identifiers (numeric identifiers as `int`, others as `str`) and `build` is a tuple of
+  `str`. Invalid input raises `ValueError`. Rules:
+  - `MAJOR.MINOR.PATCH` are ASCII decimal integers without leading zeros (`0` alone is fine), of any size.
+  - Optional pre-release: `-` then dot-separated non-empty identifiers of `[0-9A-Za-z-]`; numeric identifiers
+    (digits only) must not have leading zeros; identifiers with a letter or hyphen are alphanumeric (`0a` is fine).
+  - Optional build metadata: `+` then dot-separated non-empty identifiers of `[0-9A-Za-z-]` (leading zeros allowed).
+  - Nothing else is allowed: no `v` prefix, no whitespace, no empty identifiers, only ASCII digits.
+
+  `compare(a: str, b: str) -> int` returns -1, 0 or 1 by SemVer precedence: compare major, minor, patch
+  numerically; a version with a pre-release has lower precedence than the same version without; pre-releases
+  are compared identifier by identifier (numeric ones numerically, alphanumeric ones in ASCII order, numeric <
+  alphanumeric, and if all shared identifiers are equal the one with more identifiers is greater). Build metadata
+  is ignored (`1.0.0+a` equals `1.0.0+b`).
+
+  ## 2. Ranges
+  `satisfies(version: str, range_: str) -> bool` (invalid version or range raises `ValueError`) and
+  `max_satisfying(versions: list[str], range_: str) -> str | None` (returns the original string of the highest
+  satisfying version; invalid versions in the list are ignored; among versions of equal precedence the first one in
+  the list wins; `None` if nothing matches; an invalid range raises `ValueError`).
+
+  Grammar:
+  ```
+  range-set  := range ( '||' range )*          whitespace allowed around '||'
+  range      := hyphen | simple ( ws+ simple )*  an empty or all-whitespace range means '*'
+  hyphen     := partial ws+ '-' ws+ partial
+  simple     := [ op ] ws* partial | '~' ws* partial | '^' ws* partial      op is one of < <= > >= =
+  partial    := xr [ '.' xr [ '.' xr [ qualifier ] ] ]      qualifier = [-prerelease][+build], only when all 3 parts are numbers
+  xr         := 'x' | 'X' | '*' | number                   no number may follow a wildcard ('1.x.3' is invalid)
+  ```
+  Leading/trailing whitespace of the whole string and of each range is ignored. Anything else is invalid
+  (for example `~>1.2`, `^^1`, `>=a.b`, `1.2.3.4`, `1.2.3 -2.0.0`).
+
+  A range-set is satisfied if ANY of its ranges is satisfied; a range is satisfied if ALL its comparators are.
+  Everything desugars to plain comparators. Below, `M.m.p` are numbers and `-0` is the pre-release `0`:
+
+  | input | means |
+  |---|---|
+  | `1.2.3`, `=1.2.3`, and `<`,`<=`,`>`,`>=` with a full version | the plain comparison (build ignored) |
+  | `*`, `x`, `X`, `=*`, `>=*`, `<=*`, empty | any version |
+  | `>*`, `<*` | no version |
+  | `M` or `=M` (also `M.x`, `M.x.x`) | `>=M.0.0 <(M+1).0.0-0` |
+  | `M.m` or `=M.m` (also `M.m.x`) | `>=M.m.0 <M.(m+1).0-0` |
+  | `>M` / `>M.m` | `>=(M+1).0.0` / `>=M.(m+1).0` |
+  | `>=M` / `>=M.m` | `>=M.0.0` / `>=M.m.0` |
+  | `<M` / `<M.m` | `<M.0.0-0` / `<M.m.0-0` |
+  | `<=M` / `<=M.m` | `<(M+1).0.0-0` / `<M.(m+1).0-0` |
+  | `~M.m.p[-pre]` | `>=M.m.p[-pre] <M.(m+1).0-0` |
+  | `~M.m` / `~M` / `~*` | `>=M.m.0 <M.(m+1).0-0` / `>=M.0.0 <(M+1).0.0-0` / any |
+  | `^M.m.p[-pre]` | `>=M.m.p[-pre]` and `<(M+1).0.0-0` if M>0, else `<0.(m+1).0-0` if m>0, else `<0.0.(p+1)-0` |
+  | `^M.m` (also `^M.m.x`) | `>=M.m.0` and `<(M+1).0.0-0` if M>0, else `<0.(m+1).0-0` (also when m = 0) |
+  | `^M` (also `^M.x`) / `^*` | `>=M.0.0 <(M+1).0.0-0` / any |
+  | `A - B` | lower bound `>=A` with missing parts of A as 0 (none if A is `*`); upper bound `<=B` if B is a full version, `<M.(m+1).0-0` if B is `M.m`, `<(M+1).0.0-0` if B is `M`, none if B is `*` |
+
+  Pre-release rule: a version WITH a pre-release tag satisfies a range only if it satisfies all of its comparators
+  AND at least one comparator of that same range (after desugaring) carries a pre-release tag and has the same
+  major.minor.patch as the version. So `1.2.3-beta` satisfies `>1.2.3-alpha` but `1.2.4-beta` does not, and no
+  pre-release satisfies `*`.
+rubric: |
+  Score 1-10. Exactness with respect to the given spec: strict ASCII-only parsing (leading zeros, empty
+  identifiers, build vs pre-release rules), precedence (numeric vs alphanumeric identifiers, identifier count,
+  build ignored), a real parser for the range grammar (hyphen ranges, operator spacing, '||'), every desugaring row
+  of the table (x-ranges, partial comparators, tilde, caret with 0.x and 0.0.x, hyphen with partial bounds, >* and
+  <*), the pre-release inclusion rule, max_satisfying tie-breaking and error handling. Code clarity.
+reference_answer: |
+  Regex-based strict parser using [0-9] (not \d, which accepts non-ASCII digits) and fullmatch; precedence by
+  tuple compare plus identifier-wise pre-release compare; range parser: split on '||', detect 'A - B' first,
+  glue operators to their operands, split on whitespace, desugar each simple into (op, version) comparators per the
+  table (x-ranges -> '>=lo <hi-0'); a set is satisfied if all comparators hold and, for pre-release versions, some
+  comparator with a pre-release has the same (major, minor, patch).
+checks:
+  - kind: python_tests
+    name: hidden spec tests
+    dimension: intelligence
+    timeout_s: 60
+    code: |
+      from aidriven_harness import case, report, load_module
+
+      sv = load_module("semver.py")
+
+      def raises(fn, *args):
+          try:
+              fn(*args)
+          except ValueError:
+              return True
+          return False
+
+      @case("parse: valid versions")
+      def _():
+          assert sv.parse("1.2.3") == (1, 2, 3, (), ())
+          assert sv.parse("0.0.0") == (0, 0, 0, (), ())
+          assert sv.parse("1.0.0-alpha.1") == (1, 0, 0, ("alpha", 1), ())
+          assert sv.parse("1.0.0-0.3.7") == (1, 0, 0, (0, 3, 7), ())
+          assert sv.parse("1.0.0-x.7.z.92") == (1, 0, 0, ("x", 7, "z", 92), ())
+          assert sv.parse("1.0.0-beta+exp.sha.5114f85") == (1, 0, 0, ("beta",), ("exp", "sha", "5114f85"))
+          assert sv.parse("1.0.0+001") == (1, 0, 0, (), ("001",))
+          assert sv.parse("1.0.0-0a") == (1, 0, 0, ("0a",), ())
+          assert sv.parse("1.0.0--") == (1, 0, 0, ("-",), ())
+          assert sv.parse("99999999999999999999.0.0")[0] == 99999999999999999999
+          assert sv.parse("1.2.3-rc.1+build.5") == (1, 2, 3, ("rc", 1), ("build", "5"))
+
+      @case("parse: invalid versions", weight=2)
+      def _():
+          bad = ["1.2", "1.2.3.4", "01.2.3", "1.02.3", "1.2.03", "1.2.3-", "1.2.3+", "1.2.3-01", "1.2.3-a..b",
+                 "1.2.3+a..b", "v1.2.3", " 1.2.3", "1.2.3 ", "1.2.3-beta!", "", "1.2.3-+", "a.b.c", "1.2.3\n",
+                 "-1.2.3", "1.2.3+build+x", "１.2.3", "1.2.3-١"]
+          accepted = [b for b in bad if not raises(sv.parse, b)]
+          assert not accepted, f"accepted invalid versions: {accepted}"
+
+      @case("compare: SemVer precedence chain")
+      def _():
+          chain = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2",
+                   "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "2.0.0", "2.1.0", "2.1.1", "10.0.0"]
+          for a, b in zip(chain, chain[1:]):
+              assert sv.compare(a, b) == -1, (a, b)
+              assert sv.compare(b, a) == 1, (b, a)
+
+      @case("compare: identifiers and build metadata")
+      def _():
+          assert sv.compare("1.0.0+a", "1.0.0+b") == 0
+          assert sv.compare("1.0.0-alpha+x", "1.0.0-alpha") == 0
+          assert sv.compare("1.0.0-2", "1.0.0-10") == -1
+          assert sv.compare("1.0.0-a10", "1.0.0-a9") == -1
+          assert sv.compare("1.0.0-Z", "1.0.0-a") == -1
+          assert sv.compare("1.0.0-1", "1.0.0-a") == -1
+          assert sv.compare("1.0.0-0", "1.0.0") == -1
+          assert sv.compare("1.0.0-alpha.1", "1.0.0-alpha.-") == -1
+          assert sv.compare("1.0.0-rc.1.0", "1.0.0-rc.1") == 1
+          assert raises(sv.compare, "1.0", "1.0.0")
+
+      CASES = [
+          ("1.2.3", "1.2.3", True), ("1.2.3", "=1.2.3", True), ("1.2.4", "1.2.3", False), ("1.2.3+build", "1.2.3", True),
+          ("1.2.3", ">=1.2.3 <2.0.0", True), ("2.0.0", ">=1.2.3 <2.0.0", False),
+          ("1.9.9", "^1.2.3", True), ("2.0.0", "^1.2.3", False), ("1.2.2", "^1.2.3", False),
+          ("0.2.9", "^0.2.3", True), ("0.3.0", "^0.2.3", False), ("0.0.3", "^0.0.3", True), ("0.0.4", "^0.0.3", False),
+          ("0.0.9", "^0.0", True), ("0.1.0", "^0.0", False), ("0.9.0", "^0", True), ("1.0.0", "^0", False),
+          ("1.9.0", "^1.2.x", True), ("1.1.0", "^1.2.x", False), ("0.2.5", "^0.2", True), ("0.3.0", "^0.2", False),
+          ("0.0.9", "^0.0.x", True), ("0.1.0", "^0.0.x", False), ("0.9.9", "^0.x", True), ("9.9.9", "^*", True),
+          ("1.2.9", "~1.2.3", True), ("1.3.0", "~1.2.3", False), ("1.2.0", "~1.2", True), ("1.9.9", "~1", True),
+          ("2.0.0", "~1", False), ("0.0.5", "~0.0.1", True), ("0.1.0", "~0.0.1", False), ("4.0.0", "~*", True),
+          ("1.2.7", "1.2.x", True), ("1.3.0", "1.2.x", False), ("1.5.0", "1.x", True), ("1.5.0", "1", True),
+          ("2.0.0", "1.X", False), ("5.0.0", "*", True), ("5.0.0", "", True), ("3.0.0", "x", True), ("1.2.5", "=1.2", True),
+          ("2.3.4", "1.2.3 - 2.3.4", True), ("2.3.5", "1.2.3 - 2.3.4", False), ("2.3.9", "1.2.3 - 2.3", True),
+          ("2.4.0", "1.2.3 - 2.3", False), ("1.2.0", "1.2 - 2.3.4", True), ("1.1.9", "1.2 - 2.3.4", False),
+          ("2.9.9", "1.2.3 - 2", True), ("3.0.0", "1.2.3 - 2", False), ("0.0.1", "* - 1.0.0", True), ("7.0.0", "1.0.0 - *", True),
+          ("1.3.0", ">1.2", True), ("1.2.9", ">1.2", False), ("2.0.0", ">1", True), ("1.9.9", ">1", False),
+          ("1.2.9", "<=1.2", True), ("1.3.0", "<=1.2", False), ("1.1.9", "<1.2", True), ("1.2.0", "<1.2", False),
+          ("1.2.0", ">=1.2", True), ("1.0.0", ">*", False), ("1.0.0", "<*", False), ("1.0.0", ">=*", True),
+          ("3.0.0", "1.x || >=2.5.0 || 5.0.0 - 7.2.3", True), ("2.0.0", "1.x || >=2.5.0", False), ("0.0.1", "1.x||0.0.1", True),
+          ("1.2.3", ">= 1.2.3", True), ("1.2.3", "  >=1.0.0    <2.0.0  ", True), ("1.2.3", "^ 1.2.0", True),
+          ("1.2.3-alpha.7", ">1.2.3-alpha.3", True), ("3.4.5-alpha.9", ">1.2.3-alpha.3", False), ("3.4.5", ">1.2.3-alpha.3", True),
+          ("1.2.3-beta", "^1.2.3-alpha", True), ("1.2.4-beta", "^1.2.3-alpha", False), ("1.0.0-rc.1", "*", False),
+          ("1.0.0-rc.1", "1.0.0-rc.1", True), ("2.0.0-alpha", "^1.2.3", False), ("1.3.0-beta", "~1.2.3", False),
+          ("1.2.3-beta.2", "~1.2.3-beta.1", True), ("1.2.3-beta", "1.2.3-alpha - 1.2.3", True), ("1.2.3-beta", "<1.2.3", False),
+          ("1.2.3-beta", "5.x || >=1.2.3-alpha", True), ("1.2.3-beta", ">=1.0.0 <1.2.4 >=1.2.3-0", True),
+          ("1.2.3-beta.4", "^1.2.3-beta.2", True), ("1.2.3-beta.1", "^1.2.3-beta.2", False), ("1.2.3-beta", "1.2.x", False),
+      ]
+      for i in range(0, len(CASES), 8):
+          chunk = CASES[i:i + 8]
+          @case(f"satisfies cases {i}-{i + len(chunk) - 1}")
+          def _(chunk=chunk):
+              wrong = [(v, r, exp) for v, r, exp in chunk if sv.satisfies(v, r) is not exp]
+              assert not wrong, f"wrong results (version, range, expected): {wrong}"
+
+      @case("invalid ranges and versions raise ValueError", weight=2)
+      def _():
+          for r in [">=a.b", "^^1", "~>1.2", "1.2.3.4", "1.2.3 -2.0.0", "1.x.3", ">= ", "1.2.3 - ", "01.2.3", "1.2.x-beta", "1.2.3 - 2.0.0 - 3.0.0"]:
+              assert raises(sv.satisfies, "1.2.3", r), f"range {r!r} accepted"
+          assert raises(sv.satisfies, "1.2", "*")
+          assert raises(sv.max_satisfying, ["1.0.0"], "~>1")
+
+      @case("max_satisfying")
+      def _():
+          assert sv.max_satisfying(["1.2.3", "1.2.4", "1.3.0", "2.0.0"], "~1.2.0") == "1.2.4"
+          assert sv.max_satisfying(["1.2.3", "1.2.4-beta", "1.2.4"], "^1.2.3") == "1.2.4"
+          assert sv.max_satisfying(["2.0.0-rc.1", "1.9.9"], ">=1.0.0") == "1.9.9"
+          assert sv.max_satisfying(["1.0.0+b", "1.0.0+a"], "1.0.0") == "1.0.0+b"
+          assert sv.max_satisfying(["bad", "0.1.0"], "0.x") == "0.1.0"
+          assert sv.max_satisfying(["1.0.0"], "2.x") is None
+          assert sv.max_satisfying(["1.2.3-beta.3", "1.2.3-beta.10", "1.2.3-alpha"], ">=1.2.3-beta.1 <1.2.3") == "1.2.3-beta.10"
+
+      report()

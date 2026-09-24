@@ -1,0 +1,157 @@
+slug: rational-calculator
+title: Exact rational calculator in a single HTML file
+category: frontend
+difficulty: hard
+expected_artifact: html
+artifact_names: [index.html]
+tags: [frontend, javascript, parsing, bigint, dom]
+prompt: |
+  Build a single self-contained file `index.html` (inline CSS and JavaScript only; no external scripts, styles,
+  fonts or network requests of any kind) implementing an exact rational-number calculator.
+
+  ## Required DOM (ids are tested)
+  - `<input id="expr">` for the expression.
+  - `<button id="eval">` that evaluates the expression. Pressing Enter inside `#expr` must do the same.
+  - An element `#result` whose text content is exactly the result (nothing else inside it).
+  - A list `<ol id="history">` of previous successful evaluations.
+
+  ## Expression language
+  Grammar (whitespace allowed between any tokens):
+  ```
+  expr    := term (('+' | '-') term)*          left-associative
+  term    := unary (('*' | '/') unary)*        left-associative
+  unary   := '-' unary | power                 (unary minus may repeat: --3 = 3; there is no unary plus)
+  power   := primary ('^' unary)?              right-associative: 2^3^2 = 2^(3^2); -2^2 = -(2^2); 2^-1 = 1/2
+  primary := number | '(' expr ')'
+  number  := digits ('.' digits)?              e.g. 12, 0.5, 3.25   (".5", "1." and "1e3" are invalid)
+  ```
+  - Arithmetic is EXACT over the rationals with arbitrary-size integers (use BigInt): `0.1+0.2` is `3/10`,
+    `2^100` is `1267650600228229401496703205376`.
+  - The exponent of `^` must evaluate to an integer (it may be negative; `x^0` is 1, including `0^0`); a
+    non-integer exponent is an error. Exponents with absolute value above 10000 are an error.
+  - Division by zero (including `0^-1`) is an error.
+
+  ## Output
+  - Integers are shown in plain decimal with a leading `-` if negative (`-12`, `0`).
+  - Non-integers are shown as a reduced fraction `p/q` with q > 1 and the sign on the numerator (`-1/3`).
+  - For ANY invalid input (syntax error, empty input, division by zero, bad exponent) `#result` shows exactly
+    `Error` and the history is not changed.
+
+  ## History
+  - After each successful evaluation, insert a new `<li>` at the TOP of `#history` whose text is exactly
+    `<expression> = <result>`, where `<expression>` is the input with leading/trailing whitespace removed.
+  - Keep at most 10 entries (drop the oldest).
+  - Clicking an entry puts its expression back into `#expr` (without evaluating it).
+
+  Also make it pleasant to use: clear layout, keyboard friendly, readable in light and dark mode.
+rubric: |
+  Score 1-10. Behavioural correctness first (precedence and associativity rules, unary minus vs '^', exact BigInt
+  rationals with reduction and sign normalisation, strict number syntax, precise error handling and history
+  rules). Then UI quality: clear visual hierarchy, accessible labels, focus states, keyboard use, dark-mode
+  readability, responsive layout, no console errors, self-contained file. Penalise floating point arithmetic,
+  eval()/Function() on user input, or external resources.
+reference_answer: |
+  Recursive-descent parser following the grammar exactly (power's right operand parsed as unary, which gives
+  right-associativity and 2^-1), rationals as {n, d} BigInt pairs reduced by gcd with d > 0, pow with integer
+  exponent check and inversion for negative exponents, a tokenizer that rejects '.5', '1.' and unknown characters.
+  Form submit handler (button + Enter) writes the result or 'Error', prepends '<expr> = <result>' to #history and
+  trims to 10 items; clicking an item copies its expression into #expr.
+checks:
+  - kind: html_playwright
+    name: behaviour in headless Chromium
+    dimension: intelligence
+    weight: 3
+    timeout_s: 180
+    code: |
+      from aidriven_harness import case, report, open_page
+
+      VALUE_CASES = [
+          ("1+2", "3"), ("2*3+4", "10"), ("2+3*4", "14"), ("(2+3)*4", "20"), ("10/4*2", "5"), ("7-2-1", "4"),
+          ("1/3+1/6", "1/2"), ("0.1+0.2", "3/10"), ("1.50*2", "3"), ("7/-14", "-1/2"), ("-1/3", "-1/3"),
+          ("2^3^2", "512"), ("-2^2", "-4"), ("(-2)^2", "4"), ("2^-2", "1/4"), ("(1/3)^-2", "9"), ("0^0", "1"),
+          ("--3", "3"), ("2*-3", "-6"), ("-(-(3))", "3"), ("2^10-1", "1023"), ("(2/4)", "1/2"),
+          ("2^100", "1267650600228229401496703205376"),
+          ("123456789012345678901234567890*987654321098765432109876543210",
+           "121932631137021795226185032733622923332237463801111263526900"),
+          ("  3 +   4 * ( 2 - 1 )  ", "7"), ("(1+2)*(3+4)/7", "3"), ("1/(1-1/2)", "2"), ("-0", "0"),
+          ("(-3)^3", "-27"), ("(2/3)^3", "8/27"), ("1-1/3-1/3-1/3", "0"), ("3/-(-6)", "1/2"),
+      ]
+      ERROR_CASES = ["1/0", "2+", "()", "3 4", ".5", "1.", "", "   ", "4^(1/2)", "0^-1", "2^0.5", "+3", "1e3",
+                     "(1+2", "1+2)", "2^20000", "abc", "5 % 2", "1/(2-2)"]
+
+      with open_page("index.html") as p:
+          page = p.page
+
+          def ev(expr, via="enter"):
+              page.fill("#expr", expr)
+              if via == "enter":
+                  page.press("#expr", "Enter")
+              else:
+                  page.click("#eval")
+              page.wait_for_timeout(30)
+              return (page.text_content("#result") or "").strip()
+
+          def history():
+              return [(t or "").strip() for t in page.locator("#history > li").all_text_contents()]
+
+          @case("required elements exist", timeout=0)
+          def _():
+              for sel in ("input#expr", "#eval", "#result", "ol#history"):
+                  assert page.locator(sel).count() == 1, f"missing {sel}"
+
+          @case("button click evaluates", timeout=0)
+          def _():
+              assert ev("6*7", via="click") == "42"
+
+          for i in range(0, len(VALUE_CASES), 4):
+              chunk = VALUE_CASES[i:i + 4]
+              @case(f"values {i}-{i + len(chunk) - 1}", timeout=0)
+              def _(chunk=chunk):
+                  for expr, want in chunk:
+                      got = ev(expr)
+                      assert got == want, f"{expr!r}: expected {want!r}, got {got!r}"
+
+          for i in range(0, len(ERROR_CASES), 4):
+              chunk = ERROR_CASES[i:i + 4]
+              @case(f"errors {i}-{i + len(chunk) - 1}", timeout=0)
+              def _(chunk=chunk):
+                  for expr in chunk:
+                      got = ev(expr)
+                      assert got == "Error", f"{expr!r}: expected 'Error', got {got!r}"
+
+          @case("history: newest first, exact text, errors not added", timeout=0)
+          def _():
+              page.reload()
+              ev(" 1 + 1 ")
+              ev("1/0")
+              ev("2^-1")
+              assert history() == ["2^-1 = 1/2", "1 + 1 = 2"], history()
+
+          @case("history: at most 10 entries", timeout=0)
+          def _():
+              page.reload()
+              for k in range(12):
+                  ev(f"{k}+1")
+              h = history()
+              assert len(h) == 10, f"{len(h)} entries"
+              assert h[0] == "11+1 = 12" and h[-1] == "2+1 = 3", h
+
+          @case("clicking a history entry restores its expression", timeout=0)
+          def _():
+              page.reload()
+              ev("(1/3)^-2")
+              ev("5*5")
+              page.locator("#history > li").nth(1).click()
+              assert page.input_value("#expr") == "(1/3)^-2", page.input_value("#expr")
+              assert (page.text_content("#result") or "").strip() == "25", "clicking must not evaluate"
+
+          @case("no JavaScript errors", timeout=0)
+          def _():
+              assert not p.errors, p.errors[:3]
+
+          report()
+  - kind: regex
+    name: self-contained single file (no external resources)
+    dimension: conformity
+    target: index.html
+    pattern: '(?is)^(?!.*(?:src|href)\s*=\s*["'']?\s*(?:https?:)?//)(?!.*@import).*<html.*</html>\s*$'

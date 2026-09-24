@@ -1,0 +1,34 @@
+NORRBECK INSTRUMENTS - FINANCE POLICY FN-7: CHARGING EXPENSES TO DEPARTMENTS (applies from 2025-01-01)
+
+1. Only ledger entries with status APPROVED are charged. REJECTED and PENDING entries are ignored.
+2. A reversal entry (note 'reversal of TXN-n') cancels transaction TXN-n completely: neither the
+   original transaction nor the reversal entry is charged to anyone, whatever their dates.
+3. An expense is charged to the department the claiming employee belongs to on the transaction date,
+   taking into account internal transfers (and their withdrawals) from the staff directory.
+4. Category CONF (conference fees) is never charged to departments: it is paid from the central
+   Training Pool.
+5. Amounts are converted to EUR with the monthly rate of the transaction month (table below). Each
+   transaction is converted and rounded to cents (half away from zero) before any summing.
+6. EQUIPMENT transactions whose converted amount exceeds 5,000.00 EUR are capitalised as assets and
+   are not charged to departmental spend. EQUIPMENT at or below that threshold is charged normally.
+7. All other categories are charged in full.
+
+MONTHLY CONVERSION RATES (EUR per 1 unit of currency)
+
+Month   | USD    | GBP    | CHF
+--------+--------+--------+-------
+2025-01 | 0.9612 | 1.1904 | 1.0633
+2025-02 | 0.9580 | 1.2011 | 1.0655
+2025-03 | 0.9244 | 1.1936 | 1.0480
+2025-04 | 0.8871 | 1.1702 | 1.0712
+2025-05 | 0.8853 | 1.1843 | 1.0768
+2025-06 | 0.8702 | 1.1790 | 1.0694
+
+EUR amounts need no conversion.
+
+Appendix A - worked example: a 1,000.00 USD claim dated 2025-02-10 is charged as 958.00 EUR.
+
+Appendix B - distribution: Finance, department heads, internal audit.
+
+CORRECTION NOTICE (issued 2025-07-02): the GBP rate published above for 2025-06 was a typing error.
+The correct June 2025 GBP rate is 1.1682. All June figures must use the corrected rate.

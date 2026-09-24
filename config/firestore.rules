@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read-only access to active notifications (public broadcasts)
+    match /comunio_notifications/{notificationId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Allow read-only access to user-specific notifications
+    match /comunio_user_notifications/{userId}/messages/{messageId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Allow read access to tasks for real-time updates
+    match /comunio_tasks/{taskId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Allow read-only access to market form (lock docs for real-time refresh status)
+    match /comunio_market_form/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Allow read-only access to global gameweek points cache (real-time point updates)
+    match /comunio_gameweek_points/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Allow read-only access to market cache (real-time market updates)
+    match /comunio_market_cache/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ContextAdmin: los jobs se leen en tiempo real desde el frontend (onSnapshot);
+    // todo lo demás pasa por el backend (Admin SDK) y lo cubre el deny-all de abajo.
+    match /ContextAdmin_jobs/{jobId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Block all other direct client access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

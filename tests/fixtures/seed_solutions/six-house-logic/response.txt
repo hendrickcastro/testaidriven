@@ -1,0 +1,51 @@
+Working through the clues (reference solution, abbreviated):
+Clue 8 puts the cocoa drinker (red house) at an end; clue 6 rules out house 1, so cocoa/red is house 6 ... the remaining deductions follow by case analysis.
+
+```json
+{
+  "1": {
+    "name": "Elif",
+    "color": "black",
+    "pet": "turtle",
+    "drink": "juice",
+    "instrument": "flute"
+  },
+  "2": {
+    "name": "Chiara",
+    "color": "white",
+    "pet": "parrot",
+    "drink": "coffee",
+    "instrument": "cello"
+  },
+  "3": {
+    "name": "Ava",
+    "color": "blue",
+    "pet": "hamster",
+    "drink": "tea",
+    "instrument": "violin"
+  },
+  "4": {
+    "name": "Dmitri",
+    "color": "yellow",
+    "pet": "cat",
+    "drink": "water",
+    "instrument": "piano"
+  },
+  "5": {
+    "name": "Farid",
+    "color": "green",
+    "pet": "dog",
+    "drink": "milk",
+    "instrument": "drums"
+  },
+  "6": {
+    "name": "Bruno",
+    "color": "red",
+    "pet": "rabbit",
+    "drink": "cocoa",
+    "instrument": "harp"
+  }
+}
+```
+
+FINAL ANSWER: Elif,Chiara,Ava,Dmitri,Farid,Bruno

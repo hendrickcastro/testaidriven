@@ -1,0 +1,184 @@
+slug: regex-engine
+title: Backtracking regex engine with backreferences
+category: algorithms
+difficulty: extreme
+expected_artifact: python
+artifact_names: [rx.py]
+tags: [regex, backtracking, parsing, python]
+prompt: |
+  Write a regular-expression engine from scratch in a single Python 3.12 module `rx.py` (standard library only;
+  importing or delegating to `re`, `regex`, `fnmatch` or any other matching library is forbidden).
+
+  ## API
+  `search(pattern: str, text: str) -> list[tuple[int, int] | None] | None`
+
+  Behave exactly like Python's `re.search(pattern, text)` (no flags) for the syntax below. Return `None` if there is
+  no match; otherwise a list whose element 0 is the (start, end) span of the whole match and element i is the span
+  of capturing group i, or `None` if group i did not participate in the match. The hidden tests compare your
+  output with `re.search` on hundreds of hand-written and randomly generated patterns.
+
+  ## Syntax to support
+  - Literal characters; `\` followed by a non-alphanumeric character is that literal character (`\.`, `\*`, `\\`,
+    `\(`, `\[`, `\-`, ...). `\n` and `\t` are newline and tab.
+  - `.` matches any character except `\n`.
+  - Classes: `\d \D \w \W \s \S` with ASCII meaning (`\w` = `[A-Za-z0-9_]`, `\s` = space, `\t\n\r\f\v`).
+  - Bracket classes `[...]` and negated `[^...]` with ranges `a-z`, escapes inside (`\d`, `\w`, `\s`, `\-`, `\]`,
+    and their negated forms), `-` literal when first or last, and `]` literal when it is the first character after
+    `[` or `[^`.
+  - Anchors: `^` (start of text only), `$` (end of text, or just before a newline that is the last character),
+    `\b` and `\B` (ASCII word boundaries).
+  - Groups: capturing `( )` numbered by opening parenthesis, non-capturing `(?: )`, alternation `|` (lowest
+    precedence, empty alternatives allowed).
+  - Quantifiers `*  +  ?  {m}  {m,}  {m,n}`, each optionally followed by `?` to make it lazy.
+  - Backreferences `\1` ... `\9`: match exactly the text most recently captured by that group; if the group has
+    not participated, the backreference fails at that point.
+  - Semantics: leftmost match; at a given start position, the first match in backtracking priority order
+    (greedy quantifiers try more repetitions first, lazy ones fewer; alternatives left to right). Captures
+    reflect the last iteration of a repeated group, and a capture set in an earlier iteration is kept if a later
+    iteration does not set it again (as in Python). Backtracking must restore captures correctly.
+
+  ## Guarantees about the tests
+  - Patterns are valid; no quantifier is ever applied to a subexpression that can match the empty string, to an
+    anchor, or to a backreference; backreferences only refer to groups closed earlier in the pattern.
+  - Texts are ASCII, up to a few thousand characters: matching a 3000-character text (e.g. `(a|b)*c` or a lazy
+    `a.*?z` spanning the whole text) must work, so make sure deep backtracking does not overflow the Python stack.
+rubric: |
+  Score 1-10. Faithful Perl/Python backtracking semantics (priority order, greedy vs lazy, alternation order),
+  correct capture bookkeeping on backtracking and across iterations, backreferences, bracket-class edge cases
+  (leading ']', '-', escapes, negation), anchors including '$' before a final newline and word boundaries, correct
+  leftmost search, robustness on long inputs, clean parser/matcher separation. Heavily penalise any use of the re
+  module or other matching libraries.
+reference_answer: |
+  Recursive-descent parser (alternation > sequence > quantified atom) producing an AST with group indices by
+  opening parenthesis; a continuation-passing backtracking matcher: match(node, i, caps, k). Captures are an
+  immutable tuple copied on group exit so backtracking restores them automatically; greedy repetition tries
+  sub-match then continuation, lazy the reverse, with min/max counts; backreference compares the captured
+  substring; '$' accepts end or a final '\n'; search tries every start index 0..len(text). Recursion limit raised
+  (or an explicit stack) for long texts.
+checks:
+  - kind: python_tests
+    name: hidden tests vs re.search
+    dimension: intelligence
+    timeout_s: 300
+    code: |
+      import random
+      import re
+      from aidriven_harness import case, report, load_module, read
+
+      source = read("rx.py")
+      rx = load_module("rx.py")
+      FORBIDDEN = ("re", "regex", "fnmatch", "sre_compile", "sre_parse", "_sre", "glob")
+      CHEAT = bool(
+          re.search(r"^\s*(?:import\s+[^\n#]*\b(?:" + "|".join(FORBIDDEN) + r")\b|from\s+(?:" + "|".join(FORBIDDEN) + r")\b)", source, re.M)
+          or any(s in source for s in ("__import__", "importlib", "sys.modules", "aidriven_harness", "__builtins__"))
+          or any(getattr(v, "__name__", "") in FORBIDDEN for v in vars(rx).values())
+      )
+
+      def expected(p, t):
+          m = re.search(p, t)
+          if m is None:
+              return None
+          return [None if m.span(g) == (-1, -1) else m.span(g) for g in range(m.re.groups + 1)]
+
+      def check(p, t):
+          assert not CHEAT, "the solution imports or delegates to a matching library: all cases fail"
+          got = rx.search(p, t)
+          if got is not None:
+              got = [tuple(x) if x is not None else None for x in got]
+          exp = expected(p, t)
+          assert got == exp, f"search({p!r}, {t[:60]!r}): expected {exp}, got {got}"
+
+      HAND = [
+          (r"abc", "xxabcxx"), (r"(a|ab)(c|bcd)(d*)", "abcd"), (r"(\w+)\s+\1", "hello world world again"),
+          (r"(?:(a)|b)+", "ab"), (r"(a)|b", "b"), (r"^(a*?)(a*)$", "aaaa"), (r"x{2,3}?y", "xxxxy"),
+          (r"(\d{1,3})(?:,(\d{3}))*", "1,234,567"), (r"\bcat\b", "concat cat"), (r"a\B", "ab a"),
+          (r"$", "abc\n"), (r"c$", "abc\n"), (r"c$", "abc\n\n"), (r"[]a]+", "]]a]b"), (r"[^\s\d]+", "12 ab_c 3"),
+          (r"(a)(?:x\1)*", "axaxa"), (r"(b)?c\1", "c"), (r"(b)?c\1", "bcb"), (r"a|b|", "c"), (r"(a|b)*?c", "abac"),
+          (r"\.\*", "a.*b"), (r"a{3}", "aaaa"), (r"a{2,}?", "aaaa"), (r"(?:a{2})+", "aaaaa"), (r"(ab|a)(bc|c)?", "abc"),
+          (r"((a)|(b))+", "ab"), (r"(a*)b\1", "aabaa"), (r"(a*)b\1$", "aaba"), (r"^$", ""), (r"^", "abc"),
+          (r"[a-c-]+", "x-b-a-d"), (r"[\-a]+", "--a-"), (r"[^]a]+", "]]bcd]"), (r"(\s)\w+\1", "a b c\td"),
+          (r"(x)?y", "y"), (r"(a+?)(a+)", "aaaa"), (r"(.)(.)(.)\3\2\1", "xabccbay"),
+          (r"(?:(\d)|([a-z]))+", "a1b2"), (r"\W+", "ab, cd"), (r"(a|b|c)+?c", "abcabc"), (r"^(?:ab|a)*$", "abaab"),
+          (r"(a)b|a(c)", "ac"), (r"a.c", "a\nc abc"), (r"\d+\.\d+", "v1.25b"), (r"(ab)*\1", "ababab"),
+          (r"(\w)\1+", "abccccd"), (r"\bx\w*y\b", "axy xzzy"), (r"(?:x|y)+?z", "xyxyz"), (r"[ab]{2}[^ab]", "aabbc"),
+      ]
+
+      for i in range(0, len(HAND), 5):
+          chunk = HAND[i:i + 5]
+          @case(f"hand-written cases {i}-{i + len(chunk) - 1}")
+          def _(chunk=chunk):
+              for p, t in chunk:
+                  check(p, t)
+
+      @case("long text: (a|b)*c over 2001 chars", timeout=30)
+      def _():
+          check(r"(a|b)*c", "ab" * 1000 + "c")
+
+      @case("long text: lazy a.*?z over 3000 chars", timeout=30)
+      def _():
+          check(r"a.*?z", "a" + "x" * 3000 + "zz")
+          check(r"a*b", "a" * 3000 + "b")
+
+      # Random patterns: quantifiers are never applied to nullable subexpressions (see prompt).
+      CLASSES = [r"[ab]", r"[^a]", r"[a-c]", r"[^bc]", r"[]a]", r"[a\-]", r"[\dc]", r"[^\w]", r"[b-c1]", r"[-a]", r"[^\s\d]"]
+      ESC = [r"\w", r"\d", r"\s", r"\W", r"\."]
+      ANCH = [r"^", r"$", r"\b", r"\B"]
+      QUANTS = ["*", "+", "?", "{2}", "{1,3}", "{0,2}", "{2,}", "{0,1}", "{3}"]
+
+      def gen_pattern(rng):
+          st = {"g": 0, "closed": []}
+          def atom(depth):
+              r = rng.random()
+              if depth < 3 and r < 0.28:
+                  cap = rng.random() < 0.75
+                  g = None
+                  if cap:
+                      st["g"] += 1
+                      g = st["g"]
+                  inner, nl = alt(depth + 1)
+                  if cap:
+                      st["closed"].append(g)
+                      return "(" + inner + ")", nl
+                  return "(?:" + inner + ")", nl
+              if r < 0.36 and st["closed"] and st["g"] <= 9:
+                  return "\\" + str(rng.choice(st["closed"])), True
+              if r < 0.46:
+                  return rng.choice(CLASSES), False
+              if r < 0.51:
+                  return ".", False
+              if r < 0.56:
+                  return rng.choice(ANCH), True
+              if r < 0.62:
+                  return rng.choice(ESC), False
+              return rng.choice("abc"), False
+          def quantified(depth):
+              a, nl = atom(depth)
+              if not nl and rng.random() < 0.4:
+                  q = rng.choice(QUANTS)
+                  if rng.random() < 0.35:
+                      q += "?"
+                  nl = q[0] in "*?" or q.startswith("{0")
+                  a += q
+              return a, nl
+          def seq(depth):
+              parts = [quantified(depth) for _ in range(rng.randrange(1, 4))]
+              return "".join(p for p, _ in parts), all(n for _, n in parts)
+          def alt(depth):
+              k = 1 if rng.random() < 0.65 else rng.randrange(2, 4)
+              bs = [seq(depth) for _ in range(k)]
+              return "|".join(b for b, _ in bs), any(n for _, n in bs)
+          return alt(0)[0]
+
+      def gen_text(rng):
+          return "".join(rng.choice("aaabbbccc" + "d1_ \n") for _ in range(rng.randrange(0, 11)))
+
+      for batch in range(12):
+          @case(f"random batch {batch} (60 pattern/text pairs)", timeout=30)
+          def _(batch=batch):
+              rng = random.Random(7919 * (batch + 1))
+              for _ in range(30):
+                  p = gen_pattern(rng)
+                  for _ in range(2):
+                      check(p, gen_text(rng))
+
+      report()

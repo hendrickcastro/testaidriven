@@ -1,0 +1,259 @@
+slug: myers-diff
+title: Minimal unified diff (Myers O(ND))
+category: algorithms
+difficulty: hard
+expected_artifact: python
+artifact_names: [difftool.py]
+tags: [diff, dynamic-programming, myers, python]
+prompt: |
+  Write a Python 3.12 module `difftool.py` (standard library only; do NOT use `difflib`, whose output is not
+  guaranteed to be minimal) exposing:
+
+  `unified_diff(a: list[str], b: list[str], context: int = 3) -> list[str]`
+
+  `a` and `b` are the lines of two files (without newline characters). Return the hunks of a unified diff as a list
+  of strings (no `---`/`+++` file headers, no trailing newlines), following these rules exactly:
+
+  1. **Minimal**: the total number of `-` and `+` lines must be the minimum possible, i.e.
+     `len(a) + len(b) - 2 * LCS(a, b)`.
+  2. **Change blocks**: a change block is a maximal run of consecutive deleted/inserted lines. Inside each block all
+     `-` lines come before all `+` lines.
+  3. **Body lines**: `" " + line` for context (common) lines, `"-" + line` for lines of `a` only, `"+" + line` for
+     lines of `b` only.
+  4. **Hunks**: each hunk starts with exactly `context` common lines before its first change and ends with exactly
+     `context` common lines after its last change — fewer only when the start/end of the files is reached. Two
+     change blocks separated by at most `2 * context` common lines belong to the same hunk (all the common lines
+     between them are shown); otherwise they are in different hunks.
+  5. **Header**: each hunk begins with `@@ -S1,L1 +S2,L2 @@` where L is the number of lines of that file covered by
+     the hunk and S the 1-based number of its first line. When L is 1, write only `-S1` / `+S2` (omit `,1`). When
+     L is 0, S is the number of the line just before the (empty) range, i.e. `0` at the start of the file
+     (e.g. `@@ -0,0 +1,2 @@` for adding two lines to an empty file).
+  6. If `a == b`, return `[]`. `context` can be any integer >= 0.
+
+  Performance: inputs of 20000 lines with about 60 scattered differences must be diffed in a few seconds, and
+  300-line inputs with no common lines at all must also work (an O(N*M) table is too slow/big for the former).
+rubric: |
+  Score 1-10. Correct and minimal edit script (Myers or equivalent O(ND)), correct hunk grouping and context
+  trimming at file boundaries, exact header conventions (',1' omitted, empty ranges), deletions before insertions,
+  efficiency on large nearly-identical inputs (prefix/suffix trimming, line interning), clarity. Penalise use of
+  difflib or quadratic LCS tables.
+reference_answer: |
+  Trim common prefix/suffix, intern lines, run Myers' greedy forward algorithm storing the V array per d, backtrack
+  to recover the edit script, group changes into maximal blocks (deletions first), merge blocks whose gap is
+  <= 2*context, emit leading/trailing context of min(context, available) lines and headers via
+  range(start, len) = f"{start+1}" if len == 1 else f"{start+1 if len else start},{len}".
+checks:
+  - kind: python_tests
+    name: hidden diff tests
+    dimension: intelligence
+    timeout_s: 240
+    code: |
+      import random
+      import re
+      from aidriven_harness import case, report, load_module, read
+
+      dt = load_module("difftool.py")
+      USES_DIFFLIB = bool(re.search(r"^\s*(import|from)\s+difflib\b", read("difftool.py"), re.M))
+      HDR = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@$")
+
+      def distance(a, b):
+          """Minimal number of inserted + deleted lines (Myers, distance only)."""
+          n, m = len(a), len(b)
+          p = 0
+          while p < n and p < m and a[p] == b[p]:
+              p += 1
+          s = 0
+          while s < n - p and s < m - p and a[n - 1 - s] == b[m - 1 - s]:
+              s += 1
+          A, B = a[p:n - s], b[p:m - s]
+          N, M = len(A), len(B)
+          if N == 0 or M == 0:
+              return N + M
+          v = {1: 0}
+          for d in range(N + M + 1):
+              for k in range(-d, d + 1, 2):
+                  if k == -d or (k != d and v[k - 1] < v[k + 1]):
+                      x = v[k + 1]
+                  else:
+                      x = v[k - 1] + 1
+                  y = x - k
+                  while x < N and y < M and A[x] == B[y]:
+                      x += 1
+                      y += 1
+                  v[k] = x
+                  if x >= N and y >= M:
+                      return d
+          raise AssertionError("unreachable")
+
+      def verify(a, b, c):
+          assert not USES_DIFFLIB, "difflib is not allowed"
+          out = dt.unified_diff(list(a), list(b), c)
+          assert isinstance(out, list) and all(isinstance(x, str) for x in out), "must return list[str]"
+          if a == b:
+              assert out == [], "identical inputs must give []"
+              return out
+          assert out, "empty diff for different inputs"
+          hunks, k = [], 0
+          while k < len(out):
+              mh = HDR.match(out[k])
+              assert mh, f"bad hunk header {out[k]!r}"
+              assert mh.group(2) != "1" and mh.group(4) != "1", f"',1' must be omitted: {out[k]!r}"
+              s1, s2 = int(mh.group(1)), int(mh.group(3))
+              l1 = int(mh.group(2)) if mh.group(2) is not None else 1
+              l2 = int(mh.group(4)) if mh.group(4) is not None else 1
+              k += 1
+              body = []
+              while k < len(out) and not out[k].startswith("@@"):
+                  body.append(out[k])
+                  k += 1
+              hunks.append((s1, l1, s2, l2, body, out[k - len(body) - 1]))
+          pa = pb = 0
+          changes = 0
+          for h, (s1, l1, s2, l2, body, header) in enumerate(hunks):
+              a0 = s1 - 1 if l1 else s1
+              b0 = s2 - 1 if l2 else s2
+              assert a0 >= pa and b0 >= pb, f"hunks overlap or are out of order at {header!r}"
+              assert a0 - pa == b0 - pb and a[pa:a0] == b[pb:b0], f"lines hidden before {header!r} are not common lines"
+              if h > 0:
+                  assert a0 > pa, f"{header!r} should have been merged with the previous hunk"
+              i, j = a0, b0
+              kinds = ""
+              for line in body:
+                  t, text = line[:1], line[1:]
+                  assert t in (" ", "-", "+"), f"bad body line {line!r}"
+                  if t == " ":
+                      assert i < len(a) and j < len(b) and a[i] == text and b[j] == text, f"bad context line {line!r} in {header!r}"
+                      i += 1
+                      j += 1
+                  elif t == "-":
+                      assert i < len(a) and a[i] == text, f"bad deletion {line!r} in {header!r}"
+                      i += 1
+                  else:
+                      assert j < len(b) and b[j] == text, f"bad insertion {line!r} in {header!r}"
+                      j += 1
+                  kinds += t
+              assert i - a0 == l1 and j - b0 == l2, f"header {header!r} does not match its body ({i - a0}, {j - b0})"
+              assert "-" in kinds or "+" in kinds, f"hunk without changes {header!r}"
+              assert "+-" not in kinds, f"a deletion follows an insertion inside a change block in {header!r}"
+              lead = len(kinds) - len(kinds.lstrip(" "))
+              trail = len(kinds) - len(kinds.rstrip(" "))
+              assert lead == c or (lead < c and a0 == 0 and b0 == 0), f"{header!r}: {lead} leading context lines, expected {c}"
+              assert trail == c or (trail < c and i == len(a) and j == len(b)), f"{header!r}: {trail} trailing context lines, expected {c}"
+              for run in re.findall(r"[-+] +(?=[-+])", kinds):
+                  assert len(run) - 1 <= 2 * c, f"{header!r}: {len(run) - 1} common lines inside a hunk (> 2*context)"
+              changes += kinds.count("-") + kinds.count("+")
+              pa, pb = i, j
+          assert a[pa:] == b[pb:], "lines after the last hunk are not common lines"
+          best = distance(a, b)
+          assert changes == best, f"diff has {changes} changed lines, minimum is {best}"
+          return out
+
+      @case("identical inputs")
+      def _():
+          verify(["a", "b"], ["a", "b"], 3)
+          verify([], [], 3)
+
+      @case("add to empty file: exact output")
+      def _():
+          assert verify([], ["x", "y"], 3) == ["@@ -0,0 +1,2 @@", "+x", "+y"]
+
+      @case("delete everything: exact output")
+      def _():
+          assert verify(["x"], [], 3) == ["@@ -1 +0,0 @@", "-x"]
+
+      @case("single change in the middle: exact output")
+      def _():
+          a = [f"l{i}" for i in range(1, 21)]
+          b = a[:9] + ["NEW"] + a[10:]
+          assert verify(a, b, 3) == ["@@ -7,7 +7,7 @@", " l7", " l8", " l9", "-l10", "+NEW", " l11", " l12", " l13"]
+
+      @case("insertion at start, context 2: exact output")
+      def _():
+          a = ["p", "q", "r", "s"]
+          assert verify(a, ["NEW"] + a, 2) == ["@@ -1,2 +1,3 @@", "+NEW", " p", " q"]
+
+      @case("classic ABCABBA -> CBABAC (D=5)")
+      def _():
+          verify(list("ABCABBA"), list("CBABAC"), 3)
+          verify(list("ABCABBA"), list("CBABAC"), 0)
+
+      @case("hunk merging threshold 2*context")
+      def _():
+          a = [f"l{i}" for i in range(40)]
+          b = list(a)
+          b[10] = "X"
+          b[17] = "Y"   # 6 common lines between the changes: merged with context 3
+          out = verify(a, b, 3)
+          assert sum(1 for x in out if x.startswith("@@")) == 1
+          b = list(a)
+          b[10] = "X"
+          b[18] = "Y"   # 7 common lines: two hunks
+          out = verify(a, b, 3)
+          assert sum(1 for x in out if x.startswith("@@")) == 2
+
+      @case("context 0, 1 and 5")
+      def _():
+          rng = random.Random(5)
+          a = [f"t{i}" for i in range(60)]
+          b = list(a)
+          for idx in (3, 4, 20, 22, 40):
+              b[idx] = f"changed{idx}"
+          del b[50]
+          b.insert(30, "inserted")
+          for c in (0, 1, 5):
+              verify(a, b, c)
+
+      @case("changes at both ends")
+      def _():
+          a = ["a", "b", "c", "d", "e"]
+          verify(a, ["Z", "b", "c", "d", "Y"], 3)
+          verify(a, ["b", "c", "d"], 1)
+          verify(a, a + ["f"], 3)
+
+      for batch in range(6):
+          @case(f"random small inputs with many duplicates, batch {batch}")
+          def _(batch=batch):
+              rng = random.Random(100 + batch)
+              for _ in range(60):
+                  a = [rng.choice("abc") for _ in range(rng.randrange(0, 14))]
+                  b = [rng.choice("abc") for _ in range(rng.randrange(0, 14))]
+                  verify(a, b, rng.randrange(0, 4))
+
+      @case("random medium inputs")
+      def _():
+          rng = random.Random(77)
+          for _ in range(10):
+              a = [f"w{rng.randrange(12)}" for _ in range(rng.randrange(50, 120))]
+              b = list(a)
+              for _ in range(rng.randrange(1, 15)):
+                  op = rng.randrange(3)
+                  pos = rng.randrange(len(b) + 1)
+                  if op == 0 and pos < len(b):
+                      del b[pos]
+                  elif op == 1:
+                      b.insert(pos, f"w{rng.randrange(12)}")
+                  elif pos < len(b):
+                      b[pos] = f"w{rng.randrange(12)}"
+              verify(a, b, 3)
+
+      @case("300 vs 300 lines with nothing in common", timeout=60)
+      def _():
+          verify([f"a{i}" for i in range(300)], [f"b{i}" for i in range(300)], 3)
+
+      @case("performance: 20000 lines, 60 scattered edits", weight=3, timeout=40)
+      def _():
+          rng = random.Random(2026)
+          a = [f"line {i} {rng.randrange(10**9)}" for i in range(20000)]
+          b = list(a)
+          for _ in range(60):
+              pos = rng.randrange(len(b))
+              op = rng.randrange(3)
+              if op == 0:
+                  del b[pos]
+              elif op == 1:
+                  b.insert(pos, f"inserted {rng.randrange(10**9)}")
+              else:
+                  b[pos] = f"replaced {rng.randrange(10**9)}"
+          verify(a, b, 3)
+
+      report()

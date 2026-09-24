@@ -1,0 +1,101 @@
+slug: lipogram-acrostic
+title: Constrained poem (lipogram, acrostic, word counts, ordering)
+category: conformity
+difficulty: extreme
+expected_artifact: text
+tags: [instruction-following, constrained-writing, formatting, counting]
+prompt: |
+  Write a short poem about a lighthouse keeper during a storm that satisfies ALL of these rules at once:
+
+  1. Output ONLY the poem: exactly 8 lines, no title, no blank lines, no code fences, no comments before or after.
+  2. Each line contains only ASCII letters, single spaces between words, and commas; each line ends with exactly
+     one period, and there are no other periods. No leading or trailing spaces. A comma always directly follows a
+     word and is followed by a space.
+  3. The first letters of the 8 lines spell PYTHONIC (each line starts with that capital letter).
+  4. Line k (k = 1..8) contains exactly k + 3 words (4 words in line 1, ..., 11 words in line 8). A word is a
+     maximal run of letters.
+  5. The letter "e" (lowercase or uppercase) does not appear anywhere. (So you cannot write "lighthouse" or
+     "keeper".)
+  6. The last word of each line comes strictly after the last word of the previous line in alphabetical order
+     (case-insensitive).
+  7. No word appears twice in the whole poem (case-insensitive).
+  8. Exactly three lines contain a comma, and each of those lines contains exactly one comma.
+  9. The poem contains exactly 25 occurrences of the letter "a" (lowercase or uppercase), counted over the whole
+     poem.
+rubric: |
+  Score 1-10 mostly on rule compliance: each of the 9 rules is binary; a response that breaks rule 1 (extra text)
+  or rule 5 (letter e) should not score above 5. Among compliant or nearly compliant poems, reward coherence, imagery
+  and staying on topic (a lighthouse keeper in a storm) despite the lipogram.
+reference_answer: |
+  Example of a fully compliant poem (25 letters 'a', no 'e', acrostic PYTHONIC, 4..11 words, last words
+  light < rocks < squalls < wicks < wind < world < yards < yawning, commas in lines 4, 6 and 8):
+  Proud lamp spins light.
+  Your ship slips past rocks.
+  Tall walls stand firm against squalls.
+  Hardy Tom sits all night, trimming wicks.
+  Only foam and gray spray whirl with wind.
+  No cold gust can snuff this small, glowing world.
+  In its flood a boat may find harbor within yards.
+  Calm dawn finds him glad of his long vigil, softly yawning.
+checks:
+  - kind: python_verifier
+    name: all nine constraints
+    dimension: conformity
+    weight: 3
+    timeout_s: 30
+    code: |
+      import re
+      from aidriven_harness import case, report, response_text
+
+      TEXT = response_text().replace("\r\n", "\n").strip()
+      LINES = TEXT.split("\n") if TEXT else []
+      WORDS = [re.findall(r"[A-Za-z]+", l) for l in LINES]
+
+      @case("1. exactly 8 non-empty lines and nothing else", weight=2)
+      def _():
+          assert len(LINES) == 8, f"{len(LINES)} lines"
+          assert all(l.strip() for l in LINES), "blank line"
+
+      @case("2. allowed characters, one final period, spacing")
+      def _():
+          assert LINES
+          for l in LINES:
+              assert re.fullmatch(r"[A-Za-z]+(?:,? [A-Za-z]+)*\.", l), f"bad line {l!r}"
+
+      @case("3. acrostic PYTHONIC")
+      def _():
+          assert "".join(l[:1] for l in LINES) == "PYTHONIC", "".join(l[:1] for l in LINES)
+
+      @case("4. line k has k+3 words", weight=2)
+      def _():
+          assert [len(w) for w in WORDS] == [k + 3 for k in range(1, 9)], [len(w) for w in WORDS]
+
+      @case("5. no letter e", weight=2)
+      def _():
+          assert TEXT and "e" not in TEXT.lower(), f"{TEXT.lower().count('e')} occurrences of e"
+
+      @case("6. last words strictly increasing")
+      def _():
+          lasts = [w[-1].lower() for w in WORDS if w]
+          assert len(lasts) == 8 and all(a < b for a, b in zip(lasts, lasts[1:])), lasts
+
+      @case("7. no repeated word")
+      def _():
+          allw = [x.lower() for w in WORDS for x in w]
+          dups = sorted({x for x in allw if allw.count(x) > 1})
+          assert allw and not dups, dups
+
+      @case("8. exactly three lines with exactly one comma")
+      def _():
+          counts = [l.count(",") for l in LINES]
+          assert sorted(counts) == [0] * (len(counts) - 3) + [1, 1, 1] and len(counts) == 8, counts
+
+      @case("9. exactly 25 letters a")
+      def _():
+          assert TEXT.lower().count("a") == 25, TEXT.lower().count("a")
+
+      report()
+  - kind: regex
+    name: no letter e anywhere
+    dimension: conformity
+    pattern: '(?s)\A[^eE]+\Z'

@@ -1,0 +1,89 @@
+slug: ledger-multihop
+title: Multi-hop reasoning over staff records, ledger and finance policy
+category: long-context
+difficulty: extreme
+expected_artifact: text
+tags: [long-context, multi-hop, arithmetic, retrieval, fictional-data]
+attachments:
+  - name: norrbeck_staff.txt
+    mime: text/plain
+    path: norrbeck_staff.txt
+    inline_text: true
+  - name: norrbeck_ledger_h1.txt
+    mime: text/plain
+    path: norrbeck_ledger_h1.txt
+    inline_text: true
+  - name: norrbeck_finance_policy.txt
+    mime: text/plain
+    path: norrbeck_finance_policy.txt
+    inline_text: true
+prompt: |
+  You are given three internal documents of the fictional company Norrbeck Instruments: a staff directory with
+  internal transfer notices, the expense ledger for January-June 2025, and finance policy FN-7 (charging rules,
+  monthly FX table and a later correction notice).
+
+  Question: applying policy FN-7 exactly, what is the total expense amount in EUR charged to the
+  **Research & Development** department for transactions dated in **June 2025** (2025-06-01 to 2025-06-30
+  inclusive), and which employee accounts for the largest part of that total?
+
+  Be careful: every rule of the policy matters, including internal transfers and their withdrawals, reversals,
+  excluded categories, the capitalisation threshold, the per-transaction rounding and the correction notice.
+
+  Show the list of transactions you count (ID, employee, EUR amount) so the computation can be audited.
+  The very last line of your response must be exactly:
+  `FINAL ANSWER: <total>; <employee id>`
+  where `<total>` has exactly two decimals and no thousands separators (e.g. `FINAL ANSWER: 12345.67; E-1001`).
+rubric: |
+  Score 1-10. Did the model (1) select June 2025 APPROVED rows only, (2) remove every transaction cancelled by a
+  reversal as well as the reversal entries themselves (including June reversals of May transactions),
+  (3) resolve department membership on the transaction date using the transfer notices and ignore withdrawn
+  transfers, (4) exclude CONF, (5) exclude EQUIPMENT above 5,000.00 EUR after conversion, (6) use the corrected
+  June GBP rate and round each converted transaction to cents before summing, (7) produce the exact total and the
+  top contributor, with an auditable list? Penalise hallucinated rows or rules and a malformed final line.
+reference_answer: |
+  Total charged to Research & Development for June 2025 = 82286.57 EUR (31 contributing employees); the largest
+  contributor is E-1056 with 9332.43 EUR (next: E-1041 7716.68, E-1086 6629.85). Common wrong totals: ignoring
+  reversals 71855.46, including CONF 98861.49, ignoring transfers 83644.61, ignoring withdrawals 80387.74, using
+  the uncorrected GBP rate 82323.84, not excluding capitalised equipment 153726.32.
+  FINAL ANSWER: 82286.57; E-1056
+checks:
+  - kind: python_verifier
+    name: total and top contributor
+    dimension: intelligence
+    timeout_s: 30
+    code: |
+      import re
+      from aidriven_harness import case, report, final_answer
+
+      TOTAL = 82286.57
+      TOP = "E-1056"
+
+      def parts():
+          ans = final_answer()
+          assert ans, "no FINAL ANSWER line"
+          return ans
+
+      @case("exact total (to the cent)", weight=3)
+      def _():
+          m = re.search(r"([0-9][0-9,]*\.?[0-9]*)", parts())
+          assert m, "no number in the final answer"
+          got = float(m.group(1).replace(",", ""))
+          assert abs(got - TOTAL) <= 0.011, f"got {got}"
+
+      @case("total within 0.5% (partial credit)", weight=1)
+      def _():
+          m = re.search(r"([0-9][0-9,]*\.?[0-9]*)", parts())
+          assert m, "no number in the final answer"
+          got = float(m.group(1).replace(",", ""))
+          assert abs(got - TOTAL) <= TOTAL * 0.005, f"got {got}"
+
+      @case("largest contributor", weight=2)
+      def _():
+          m = re.search(r"E-\d{4}", parts())
+          assert m and m.group(0) == TOP, f"got {m.group(0) if m else None}"
+
+      report()
+  - kind: regex
+    name: final line has the exact required format
+    dimension: conformity
+    pattern: '(?:^|\n)FINAL ANSWER: [0-9]+\.[0-9]{2}; E-[0-9]{4}\s*$'

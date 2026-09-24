@@ -1,0 +1,174 @@
+slug: setup-scheduling
+title: Single-machine scheduling with setups, releases and deadlines
+category: optimization
+difficulty: extreme
+expected_artifact: json
+artifact_names:
+- schedule.json
+tags:
+- scheduling
+- combinatorial-optimization
+- tsp-tw
+- json
+prompt: |
+  A single machine must process 14 jobs, J1 to J14, one at a time and without preemption. Each job has a
+  processing time, a release time (it cannot START processing before it) and a deadline (it must FINISH processing
+  by then, completion time <= deadline):
+
+    | Job | processing | release | deadline |
+    |-----|------------|---------|----------|
+    | J1  |          7 |      75 |      243 |
+    | J2  |         12 |      16 |       47 |
+    | J3  |          9 |      77 |      191 |
+    | J4  |         11 |      80 |      161 |
+    | J5  |         13 |       8 |       66 |
+    | J6  |         13 |       1 |       35 |
+    | J7  |         11 |      33 |       74 |
+    | J8  |         12 |      29 |      131 |
+    | J9  |          7 |      60 |      151 |
+    | J10 |         12 |      70 |      255 |
+    | J11 |         11 |      50 |      156 |
+    | J12 |         14 |      19 |      116 |
+    | J13 |          7 |      81 |      219 |
+    | J14 |          6 |      66 |      221 |
+
+  Before each job the machine needs a sequence-dependent setup. The table gives the setup time from the previous
+  job (row; "start" = the initial state at time 0) to the next job (column):
+
+    | from \ to | J1  | J2  | J3  | J4  | J5  | J6  | J7  | J8  | J9  | J10 | J11 | J12 | J13 | J14 |
+    |-----------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+    | start     |   4 |   2 |   2 |   3 |   5 |   3 |   4 |   7 |   5 |   8 |   7 |   8 |   4 |   5 |
+    | J1        |   - |  11 |  14 |  10 |  13 |  14 |  11 |  14 |   1 |   2 |   3 |   1 |   2 |  14 |
+    | J2        |   7 |   - |   2 |  13 |   3 |  14 |   1 |   8 |  14 |   9 |   9 |   6 |   6 |  12 |
+    | J3        |  12 |   1 |   - |   6 |   2 |   7 |   1 |   9 |  11 |  11 |   6 |   5 |  14 |  14 |
+    | J4        |   5 |  11 |  14 |   - |  13 |   9 |  13 |   8 |   5 |   9 |   5 |   6 |   6 |   3 |
+    | J5        |  13 |   1 |   1 |  11 |   - |  14 |   2 |   7 |   5 |  10 |  10 |  10 |   7 |  11 |
+    | J6        |  11 |  12 |  13 |  11 |  14 |   - |  13 |   1 |  14 |  13 |   9 |  11 |   8 |   9 |
+    | J7        |  11 |   2 |   3 |   9 |   3 |  10 |   - |  11 |  14 |  10 |   5 |  11 |  14 |  14 |
+    | J8        |   7 |   5 |  10 |  12 |  10 |   3 |  10 |   - |   9 |  12 |   5 |  14 |   5 |   5 |
+    | J9        |   2 |   9 |  12 |   9 |  14 |  14 |  10 |   7 |   - |   1 |   2 |   2 |   3 |   9 |
+    | J10       |   2 |  11 |   6 |   5 |  14 |   7 |   9 |  13 |   1 |   - |   2 |   1 |   2 |   7 |
+    | J11       |   3 |  11 |   6 |   6 |  14 |  10 |  10 |   8 |   2 |   1 |   - |   2 |   3 |   8 |
+    | J12       |   3 |  12 |   9 |   8 |   6 |   5 |  13 |   8 |   2 |   3 |   1 |   - |   2 |   6 |
+    | J13       |   3 |  10 |  14 |   7 |  11 |   9 |  13 |   9 |   2 |   2 |   3 |   2 |   - |  11 |
+    | J14       |  14 |  11 |   5 |   2 |   7 |   8 |   5 |  12 |  14 |  13 |  11 |  13 |   8 |   - |
+
+  Timing rule: if job j is processed right after job i (or first, with i = start), its setup may begin as soon as
+  job i completes (time 0 for the first job) and takes S[i][j]; processing of j then starts at
+  max(completion(i) + S[i][j], release(j)) and completes processing(j) later. Idle time is allowed only as implied
+  by this rule. All data are integers.
+
+  Goal: find a sequence of all 14 jobs that meets every deadline and MINIMISES the makespan (completion time of the
+  last job).
+
+  Deliver `schedule.json` containing exactly one JSON object:
+  {"sequence": ["J..", ...], "makespan": <integer>}
+  with all 14 job names in processing order and the makespan your sequence achieves under the timing rule.
+  Explain briefly how you searched and why you believe your makespan is optimal or close to it.
+rubric: |
+  Score 1-10. Feasibility first (a permutation of all 14 jobs that meets every deadline under the exact
+  timing rule), then quality of the makespan relative to the optimum (214), soundness of the search method
+  (exact DP over subsets / branch and bound vs. unexplained guessing), honesty about optimality claims, and
+  a correct, consistent schedule.json.
+reference_answer: |
+  Optimal makespan 214 (exact DP over (subset, last job) states; earliest completion dominates).
+  One optimal sequence: J6, J2, J5, J7, J11, J12, J9, J8, J13, J4, J14, J3, J10, J1. EDD order and release-time order are both infeasible.
+checks:
+- kind: python_verifier
+  name: feasibility and makespan tiers vs optimum
+  dimension: intelligence
+  weight: 3
+  timeout_s: 30
+  code: |
+    import json
+    from aidriven_harness import case, report, read
+
+    P = [7, 12, 9, 11, 13, 13, 11, 12, 7, 12, 11, 14, 7, 6]
+    R = [75, 16, 77, 80, 8, 1, 33, 29, 60, 70, 50, 19, 81, 66]
+    D = [243, 47, 191, 161, 66, 35, 74, 131, 151, 255, 156, 116, 219, 221]
+    S = [[4, 2, 2, 3, 5, 3, 4, 7, 5, 8, 7, 8, 4, 5], [3, 11, 14, 10, 13, 14, 11, 14, 1, 2, 3, 1, 2, 14], [7, 3, 2, 13, 3, 14, 1, 8, 14, 9, 9, 6, 6, 12], [12, 1, 2, 6, 2, 7, 1, 9, 11, 11, 6, 5, 14, 14], [5, 11, 14, 2, 13, 9, 13, 8, 5, 9, 5, 6, 6, 3], [13, 1, 1, 11, 2, 14, 2, 7, 5, 10, 10, 10, 7, 11], [11, 12, 13, 11, 14, 3, 13, 1, 14, 13, 9, 11, 8, 9], [11, 2, 3, 9, 3, 10, 1, 11, 14, 10, 5, 11, 14, 14], [7, 5, 10, 12, 10, 3, 10, 3, 9, 12, 5, 14, 5, 5], [2, 9, 12, 9, 14, 14, 10, 7, 2, 1, 2, 2, 3, 9], [2, 11, 6, 5, 14, 7, 9, 13, 1, 3, 2, 1, 2, 7], [3, 11, 6, 6, 14, 10, 10, 8, 2, 1, 1, 2, 3, 8], [3, 12, 9, 8, 6, 5, 13, 8, 2, 3, 1, 2, 2, 6], [3, 10, 14, 7, 11, 9, 13, 9, 2, 2, 3, 2, 2, 11], [14, 11, 5, 2, 7, 8, 5, 12, 14, 13, 11, 13, 8, 1]]
+    OPT = 214
+
+    def evaluate():
+        data = json.loads(read("schedule.json"))
+        seq = data["sequence"]
+        assert isinstance(seq, list) and len(seq) == 14, "sequence must list 14 jobs"
+        idx = []
+        for name in seq:
+            assert isinstance(name, str) and name.strip().upper().startswith("J"), f"bad job name {name!r}"
+            idx.append(int(name.strip()[1:]) - 1)
+        assert sorted(idx) == list(range(14)), "sequence is not a permutation of J1..J14"
+        t, prev, late = 0, 0, []
+        for j in idx:
+            t = max(t + S[prev][j], R[j]) + P[j]
+            if t > D[j]:
+                late.append(f"J{j + 1} ends {t} > {D[j]}")
+            prev = j + 1
+        assert not late, "deadline violations: " + ", ".join(late)
+        return t
+
+    @case("feasible: permutation meeting all deadlines", weight=3)
+    def _():
+        evaluate()
+
+    @case("makespan within 10% of optimum", weight=2)
+    def _():
+        m = evaluate()
+        assert m <= OPT * 1.10, f"makespan {m}"
+
+    @case("makespan within 3% of optimum", weight=2)
+    def _():
+        m = evaluate()
+        assert m <= OPT * 1.03, f"makespan {m}"
+
+    @case("optimal makespan", weight=3)
+    def _():
+        m = evaluate()
+        assert m == OPT, f"makespan {m}, optimum is lower"
+
+    report()
+- kind: json_schema
+  name: schedule.json matches the schema
+  dimension: conformity
+  target: schedule.json
+  schema:
+    type: object
+    required:
+    - sequence
+    - makespan
+    additionalProperties: false
+    properties:
+      sequence:
+        type: array
+        minItems: 14
+        maxItems: 14
+        uniqueItems: true
+        items:
+          type: string
+          pattern: ^J([1-9]|1[0-4])$
+      makespan:
+        type: integer
+        minimum: 0
+- kind: python_verifier
+  name: declared makespan is consistent
+  dimension: conformity
+  timeout_s: 30
+  code: |
+    import json
+    from aidriven_harness import case, report, read
+
+    P = [7, 12, 9, 11, 13, 13, 11, 12, 7, 12, 11, 14, 7, 6]
+    R = [75, 16, 77, 80, 8, 1, 33, 29, 60, 70, 50, 19, 81, 66]
+    S = [[4, 2, 2, 3, 5, 3, 4, 7, 5, 8, 7, 8, 4, 5], [3, 11, 14, 10, 13, 14, 11, 14, 1, 2, 3, 1, 2, 14], [7, 3, 2, 13, 3, 14, 1, 8, 14, 9, 9, 6, 6, 12], [12, 1, 2, 6, 2, 7, 1, 9, 11, 11, 6, 5, 14, 14], [5, 11, 14, 2, 13, 9, 13, 8, 5, 9, 5, 6, 6, 3], [13, 1, 1, 11, 2, 14, 2, 7, 5, 10, 10, 10, 7, 11], [11, 12, 13, 11, 14, 3, 13, 1, 14, 13, 9, 11, 8, 9], [11, 2, 3, 9, 3, 10, 1, 11, 14, 10, 5, 11, 14, 14], [7, 5, 10, 12, 10, 3, 10, 3, 9, 12, 5, 14, 5, 5], [2, 9, 12, 9, 14, 14, 10, 7, 2, 1, 2, 2, 3, 9], [2, 11, 6, 5, 14, 7, 9, 13, 1, 3, 2, 1, 2, 7], [3, 11, 6, 6, 14, 10, 10, 8, 2, 1, 1, 2, 3, 8], [3, 12, 9, 8, 6, 5, 13, 8, 2, 3, 1, 2, 2, 6], [3, 10, 14, 7, 11, 9, 13, 9, 2, 2, 3, 2, 2, 11], [14, 11, 5, 2, 7, 8, 5, 12, 14, 13, 11, 13, 8, 1]]
+
+    @case("declared makespan equals the makespan of the declared sequence")
+    def _():
+        data = json.loads(read("schedule.json"))
+        idx = [int(x.strip()[1:]) - 1 for x in data["sequence"]]
+        t, prev = 0, 0
+        for j in idx:
+            t = max(t + S[prev][j], R[j]) + P[j]
+            prev = j + 1
+        assert data["makespan"] == t, f"declared {data['makespan']}, actual {t}"
+
+    report()

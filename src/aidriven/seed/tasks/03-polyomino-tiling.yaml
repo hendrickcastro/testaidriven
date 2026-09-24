@@ -1,0 +1,126 @@
+slug: polyomino-tiling
+title: Exact polyomino tiling counter (exact cover under time limits)
+category: algorithms
+difficulty: extreme
+expected_artifact: python
+artifact_names: [tiling.py]
+tags: [exact-cover, backtracking, combinatorics, performance, python]
+prompt: |
+  Write a Python 3.12 module `tiling.py` (standard library only) exposing:
+
+  `count_tilings(region: list[str], pieces: list[list[str]]) -> int`
+
+  - `region` is a grid given as rows of characters: `.` is a cell that must be covered; any other character
+    (e.g. `#` or a space) is blocked. Rows may have different lengths (missing positions are blocked). The region
+    may be irregular, contain holes, or be disconnected.
+  - Each piece is a polyomino drawn as rows where `#` marks its cells (any other character is empty).
+  - Count the tilings: ways to place EVERY piece exactly once (each piece may be rotated by multiples of 90° and
+    mirrored) so that the pieces do not overlap, stay inside the region, and cover every `.` cell.
+  - Two tilings are different if some piece covers a different set of cells. Pieces are distinct objects even when
+    they have the same shape (so swapping two identical pieces gives a different tiling). Tilings that are
+    symmetric images of each other are counted separately.
+  - If the total area of the pieces differs from the number of `.` cells the answer is 0. An empty region with no
+    pieces has exactly 1 tiling.
+
+  Examples: a 2x2 square with two dominoes has 4 tilings. The 12 free pentominoes tile a 3x20 rectangle in 8 ways
+  and a 4x15 rectangle in 1472 ways.
+
+  Performance matters: hidden tests include the 12 pentominoes on a 4x15 rectangle, on a 5x12 rectangle, and on an
+  8x8 square with the central 2x2 block removed, each with a time limit of about one minute in CPython. A naive
+  search will not finish in time; think about cell-selection order, precomputed placements, and pruning.
+rubric: |
+  Score 1-10. Correct counting semantics (all orientations deduplicated per piece, identical pieces distinct,
+  mirrored/rotated tilings distinct, area mismatch, empty region), a sound exact-cover search (first empty cell or
+  Algorithm X/DLX with a good column heuristic), efficient data structures (bitmasks, precomputed placements),
+  effective pruning (e.g. dead-region area checks), and code clarity. Penalise solutions that only pass small cases.
+reference_answer: |
+  Enumerate the distinct orientations of each piece (up to 8), normalised and anchored at their first cell in scan
+  order. Precompute, for every region cell and piece, the bitmasks of placements whose anchor is that cell. Search:
+  always fill the first empty cell (scanning along the short side of the region), try each unused piece's
+  placements that fit, recurse; prune when an empty connected component's area is not a subset sum of the remaining
+  piece sizes. Expected counts: 3x20 -> 8, 4x15 -> 1472, 5x12 -> 4040, 8x8 minus centre 2x2 -> 520.
+checks:
+  - kind: python_tests
+    name: hidden tiling tests
+    dimension: intelligence
+    timeout_s: 480
+    code: |
+      from aidriven_harness import case, report, load_module
+
+      tiling = load_module("tiling.py")
+
+      DOM = ["##"]
+      TRI_L = ["#.", "##"]
+      TRI_I = ["###"]
+      TET = {"I": ["####"], "O": ["##", "##"], "T": ["###", ".#."], "S": [".##", "##."], "L": ["###", "#.."]}
+      P = {
+          "F": [".##", "##.", ".#."], "I": ["#####"], "L": ["####", "#..."], "N": ["##..", ".###"],
+          "P": ["##", "##", "#."], "T": ["###", ".#.", ".#."], "U": ["#.#", "###"], "V": ["#..", "#..", "###"],
+          "W": ["#..", "##.", ".##"], "X": [".#.", "###", ".#."], "Y": ["####", ".#.."], "Z": ["##.", ".#.", ".##"],
+      }
+      PENT = list(P.values())
+
+      def ok(region, pieces, expected):
+          got = tiling.count_tilings(list(region), [list(p) for p in pieces])
+          assert got == expected, f"expected {expected}, got {got}"
+
+      @case("trivial cases")
+      def _():
+          ok(["."], [["#"]], 1)
+          ok([], [], 1)
+          ok(["##", "#"], [], 1)
+          ok(["...", "..."], [DOM, DOM], 0)
+
+      @case("identical pieces are distinct")
+      def _():
+          ok(["..", ".."], [DOM, DOM], 4)
+          ok(["...", "..."], [TRI_L, TRI_L], 4)
+          ok(["....", "....", "...."], [TRI_L] * 4, 96)
+
+      @case("impossible tetromino rectangles")
+      def _():
+          ok(["....."] * 4, list(TET.values()), 0)
+          ok(["." * 10] * 2, list(TET.values()), 0)
+
+      @case("disconnected region")
+      def _():
+          ok(["..#..", "..#.."], [DOM] * 4, 96)
+
+      @case("region with a hole")
+      def _():
+          ok(["....", ".##.", "...."], [TRI_L, TRI_L, DOM, DOM], 16)
+
+      @case("ragged rows and spaces are blocked")
+      def _():
+          ok(["...#", ".....", " ....", "..", "...."], [TET["L"], TET["T"], TET["S"], TRI_L, TRI_I], 2)
+
+      @case("mixed sizes on 5x5 minus centre")
+      def _():
+          centre = [".....", ".....", "..#..", ".....", "....."]
+          ok(centre, [TET["T"], TET["S"], TET["L"], TET["I"], TRI_L, TRI_I, DOM], 1088)
+          ok(centre, [P["P"], P["U"], P["N"], TET["I"], TRI_L, DOM], 56)
+
+      @case("pentomino subsets")
+      def _():
+          ok(["......"] * 5, [P[k] for k in "INPVWY"], 64)
+          ok(["." * 10] * 3, [P[k] for k in "LNPUVY"], 36)
+          ok(["......"] * 5, [P[k] for k in "FLPUVY"], 4)
+          ok(["." * 10] * 3, [P[k] for k in "ILPUVY"], 0)
+
+      @case("12 pentominoes on 3x20", timeout=60)
+      def _():
+          ok(["." * 20] * 3, PENT, 8)
+
+      @case("12 pentominoes on 4x15", weight=2, timeout=60)
+      def _():
+          ok(["." * 15] * 4, PENT, 1472)
+
+      @case("12 pentominoes on 5x12", weight=3, timeout=100)
+      def _():
+          ok(["." * 12] * 5, PENT, 4040)
+
+      @case("12 pentominoes on 8x8 minus centre", weight=3, timeout=100)
+      def _():
+          ok(["........"] * 3 + ["...##..."] * 2 + ["........"] * 3, PENT, 520)
+
+      report()

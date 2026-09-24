@@ -1,0 +1,5 @@
+Let f(x, y, h) be the number of valid completions from (x, y) when h holds the last two steps.
+Allowed transitions: no D after D, no E after N, no third consecutive E, and y <= x after every step.
+Filling the table from (20, 20) backwards reproduces the small cases (n=2: 4, n=3: 9) and gives for n = 20:
+
+FINAL ANSWER: 180657509

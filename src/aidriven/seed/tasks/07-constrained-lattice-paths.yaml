@@ -1,0 +1,41 @@
+slug: constrained-lattice-paths
+title: Counting constrained lattice paths (exact integer)
+category: math
+difficulty: extreme
+expected_artifact: text
+tags: [combinatorics, dynamic-programming, counting, exact-arithmetic]
+prompt: |
+  Count the lattice paths from (0, 0) to (20, 20) that use only the unit steps E = (1, 0), N = (0, 1) and the
+  diagonal step D = (1, 1), and that satisfy ALL of the following conditions:
+
+  1. The path never visits a point (x, y) with y > x (it may touch the diagonal y = x).
+  2. No two D steps are consecutive.
+  3. An N step is never immediately followed by an E step.
+  4. The path never contains three consecutive E steps.
+
+  For checking your method: with the same rules there are exactly 4 such paths from (0, 0) to (2, 2) and exactly 9
+  from (0, 0) to (3, 3).
+
+  Give the exact number of paths to (20, 20). Show your method. The very last line of your response must be
+  `FINAL ANSWER: <n>` where `<n>` is the exact integer written with digits only (no separators, no spaces, no
+  scientific notation).
+rubric: |
+  Score 1-10. A correct model of the constraints (state must track the last one or two steps: last step for
+  rules 2-3, run of E steps for rule 4, plus the y <= x boundary), a systematic and verifiable computation
+  (transfer matrix / DP table or generating function) that reproduces the given small cases (4 and 9), the exact
+  final integer, and strict final-line format. Penalise guessing, approximations or unverifiable leaps.
+reference_answer: |
+  DP over states (x, y, last two steps) with transitions E/N/D restricted by: not D after D, not E after N, not a
+  third consecutive E, and y <= x. Counts for n = 1..20: 2, 4, 9, 20, 49, 123, 315, 826, 2199, 5927, 16155, 44436,
+  123185, 343848, 965556, 2725762, 7731248, 22021560, 62965400, 180657509. Answer: 180657509.
+checks:
+  - kind: numeric
+    name: exact path count
+    dimension: intelligence
+    weight: 3
+    expected: 180657509
+    tolerance: 0.5
+  - kind: regex
+    name: last line is FINAL ANSWER with a bare integer
+    dimension: conformity
+    pattern: '(?:^|\n)FINAL ANSWER: [0-9]+\s*$'

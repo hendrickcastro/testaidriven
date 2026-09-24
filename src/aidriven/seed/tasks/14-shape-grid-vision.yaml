@@ -1,0 +1,72 @@
+slug: shape-grid-vision
+title: Precise counting and spatial reasoning on a grid of shapes
+category: vision
+difficulty: hard
+expected_artifact: text
+requires: [vision]
+tags: [vision, counting, spatial-reasoning]
+attachments:
+  - name: shapes_grid.png
+    mime: image/png
+    path: shapes_grid.png
+prompt: |
+  The attached image shows a grid of 7 rows (numbered 1-7 from the top, labels on the left) and 9 columns
+  (numbered 1-9 from the left, labels on top). Each cell is either empty or contains exactly one filled shape: a
+  circle, a square or a triangle, coloured red, green, blue or yellow.
+
+  Answer these five questions:
+  1. How many circles are there in total?
+  2. How many red shapes (of any kind) are there in total?
+  3. How many cells are empty?
+  4. How many yellow shapes are in a cell that shares an edge (up, down, left or right; not diagonal) with a cell
+     containing a red shape?
+  5. Which column contains the most triangles? (It is unique.)
+
+  You may reason first. The very last line of your response must be
+  `FINAL ANSWER: a1,a2,a3,a4,a5`
+  with the five answers as plain integers in order, separated by commas without spaces
+  (e.g. `FINAL ANSWER: 3,4,5,6,7`).
+rubric: |
+  Score 1-10 by the number of correct answers (the ground truth is fixed), with credit for a systematic
+  row-by-row inventory of the grid that makes the counts auditable, and for the exact final-line format.
+  Penalise inventories that invent shapes or colours not present in the image.
+reference_answer: |
+  Answers: circles = 16, red shapes = 10, empty cells = 21, yellow shapes edge-adjacent to a red shape = 5
+  (cells r1c3, r1c8, r2c9, r3c9, r7c3), column with most triangles = 4 (5 triangles).
+  FINAL ANSWER: 16,10,21,5,4
+checks:
+  - kind: exact
+    name: all five answers exactly
+    dimension: intelligence
+    weight: 2
+    expected: 16,10,21,5,4
+  - kind: python_verifier
+    name: per-question credit
+    dimension: intelligence
+    weight: 3
+    timeout_s: 30
+    code: |
+      import re
+      from aidriven_harness import case, report, final_answer
+
+      EXPECTED = [16, 10, 21, 5, 4]
+      NAMES = ["circles", "red shapes", "empty cells", "yellow next to red", "column with most triangles"]
+
+      def answers():
+          ans = final_answer()
+          assert ans, "no FINAL ANSWER line"
+          nums = [int(x) for x in re.findall(r"-?\d+", ans)]
+          assert len(nums) == 5, f"expected 5 numbers, got {nums}"
+          return nums
+
+      for i, name in enumerate(NAMES):
+          @case(f"Q{i + 1}: {name}")
+          def _(i=i):
+              got = answers()[i]
+              assert got == EXPECTED[i], f"got {got}"
+
+      report()
+  - kind: regex
+    name: final line format
+    dimension: conformity
+    pattern: '(?:^|\n)FINAL ANSWER: \d+,\d+,\d+,\d+,\d+\s*$'

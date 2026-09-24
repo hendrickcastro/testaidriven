@@ -1,0 +1,270 @@
+slug: lisp-interpreter
+title: Mini-Lisp interpreter with closures and proper tail calls
+category: algorithms
+difficulty: extreme
+expected_artifact: python
+artifact_names: [lisp.py]
+tags: [interpreter, tail-calls, closures, parsing, python]
+prompt: |
+  Implement an interpreter for a small Scheme-like Lisp in a single Python 3.12 module named `lisp.py`
+  (standard library only).
+
+  ## Public API
+  - `class LispError(Exception)`: raised for every read or evaluation error.
+  - `run(source: str) -> str`: read and evaluate all top-level forms of `source`, in order, in a FRESH global
+    environment (nothing persists between calls), and return the printed representation of the value of the last
+    form (`""` if there are no forms).
+
+  ## Reader
+  - Tokens: `(`, `)`, `'`, `` ` ``, `,`, `,@`, and atoms. `;` starts a comment that runs to the end of the line.
+  - Atoms: integers matching `[+-]?[0-9]+` (arbitrary precision), `#t`, `#f`, otherwise symbols (case-sensitive).
+  - Dotted pairs: `(a b . c)`. `'x` = `(quote x)`, `` `x `` = `(quasiquote x)`, `,x` = `(unquote x)`,
+    `,@x` = `(unquote-splicing x)`.
+  - Unbalanced parentheses or a misplaced `.` raise `LispError`.
+
+  ## Values and printing
+  - Integers print in decimal; booleans as `#t` / `#f`; symbols by name; the empty list as `()`.
+  - Proper lists print as `(1 2 3)`, improper ones as `(1 2 . 3)`; nested structure is printed recursively.
+    Quoted forms are NOT abbreviated: `''a` prints `(quote a)`.
+  - Every procedure (builtin or closure) prints as `#<procedure>`.
+  - `define`, `set!`, an `if` without else whose test is false, a `cond` with no matching clause, and `(begin)`
+    return an unspecified value that prints as the empty string.
+  - Only `#f` is false; everything else (including `0` and `()`) is true.
+
+  ## Special forms (their names are reserved and are never used as variables)
+  - `quote`, `if` (2 or 3 operands), `define` (`(define x e)` and `(define (f a b . rest) body...)`),
+    `set!` (the variable must already exist, else `LispError`), `lambda` (params can be a list `(a b)`,
+    a dotted list `(a . rest)` or a single symbol `args` that receives all arguments as a list; body has 1+ forms),
+    `begin`, `let`, named `let` (`(let loop ((i 0) (acc 1)) ...)`), `let*`, `letrec`,
+    `cond` (clauses `(test e...)`; a clause with only a test returns the test's value; `else` clause),
+    `and`, `or` (short-circuit, return the deciding value; `(and)` is `#t`, `(or)` is `#f`),
+    `quasiquote` with `unquote` and `unquote-splicing` (nesting depth 1 only; dotted tails like `` `(a . ,b) ``
+    must work).
+  - Lexical scoping; closures capture their defining environment; `define` inside a body defines in the
+    current (innermost) environment.
+
+  ## Builtins
+  `+ - * quotient remainder modulo = < > <= >= abs min max not eq? eqv? equal? cons car cdr list length append
+  reverse null? pair? number? symbol? boolean? procedure? zero? apply map`
+  - `+` and `*` are variadic; `(- x)` negates; comparisons are variadic and chained.
+  - `quotient` truncates toward zero, `remainder` has the sign of the dividend, `modulo` the sign of the divisor;
+    division by zero raises `LispError`.
+  - `eq?`/`eqv?`: numbers by value, symbols by name, booleans and `()` by value, pairs and procedures by identity.
+    `equal?` compares structure recursively.
+  - `(apply f a b '(c d))` calls `f` with `a b c d`; `map` takes one procedure and one list.
+  - `car`/`cdr` of a non-pair, calling a non-procedure, wrong number of arguments to a closure, and an unbound
+    variable all raise `LispError`.
+
+  ## Tail calls and recursion limits (tested)
+  Calls in tail position (last form of a lambda/let/let*/letrec/named-let/begin body, both branches of `if`, the
+  last form of a `cond` clause, the last operand of `and`/`or`) must not grow the Python stack. The hidden tests fix
+  the Python recursion limit at 5000 and prevent your code from changing it, then run tail-recursive loops of
+  100000 iterations (including mutual recursion). Non-tail recursion up to depth 250 must still work under that
+  limit. Typical programs must also be reasonably fast (e.g. naive `(fib 20)` in a few seconds).
+rubric: |
+  Score 1-10. Correctness of the evaluator semantics (lexical closures, set!, define shorthand, variadic lambdas,
+  named let, letrec), a real proper-tail-call mechanism (trampoline/loop, not just a raised recursion limit),
+  faithful printer (dotted pairs, nested lists, #<procedure>, unspecified value), quasiquote with splicing and
+  dotted tails, precise error handling through LispError, and code clarity. Penalise missing features, reliance
+  on sys.setrecursionlimit for tail calls, or global state leaking between run() calls.
+reference_answer: |
+  A reader producing cons cells (Pair objects with a NIL singleton), an eval loop `while True` where tail positions
+  reassign the current expression/environment and `continue` (if/cond/begin/let bodies/and/or/closure application),
+  Env objects chained by `outer`, closures storing params/rest/body/env, named let implemented as a closure bound in
+  a fresh env, letrec pre-binding names, quasiquote walking the template (splicing lists, handling a dotted
+  unquote tail). quotient truncates, remainder = a - b*quotient, modulo = Python %. run() builds a new global env.
+checks:
+  - kind: python_tests
+    name: hidden interpreter tests
+    dimension: intelligence
+    timeout_s: 240
+    code: |
+      import sys
+      from aidriven_harness import case, report, load_module
+
+      lisp = load_module("lisp.py")
+      # Fix the recursion limit and stop the solution from changing it.
+      sys.setrecursionlimit(5000)
+      sys.setrecursionlimit = lambda n: None
+      run = lisp.run
+      LispError = lisp.LispError
+
+      def ok(src, expected):
+          got = run(src)
+          assert got == expected, f"{src!r}: expected {expected!r}, got {got!r}"
+
+      def err(src):
+          try:
+              got = run(src)
+          except LispError:
+              return
+          raise AssertionError(f"{src!r} should raise LispError, returned {got!r}")
+
+      @case("arithmetic and bignums")
+      def _():
+          ok("(+ 1 2 (* 3 4))", "15")
+          ok("(- 10)", "-10")
+          ok("(- 10 1 2 3)", "4")
+          ok("(* 99999999999 99999999999)", "9999999999800000000001")
+          ok("(+)", "0")
+
+      @case("quotient remainder modulo signs")
+      def _():
+          ok("(list (quotient -7 2) (remainder -7 2) (modulo -7 2) (modulo 7 -2) (quotient 7 -2))", "(-3 -1 1 -1 -3)")
+
+      @case("printer: lists, dotted pairs, quote")
+      def _():
+          ok("'(1 (2 3) . 4)", "(1 (2 3) . 4)")
+          ok("'()", "()")
+          ok("(cons 1 2)", "(1 . 2)")
+          ok("(cons 1 (cons 2 '()))", "(1 2)")
+          ok("(list #t #f 'a)", "(#t #f a)")
+          ok("''a", "(quote a)")
+          ok("(lambda (x) x)", "#<procedure>")
+          ok("car", "#<procedure>")
+
+      @case("unspecified values print empty")
+      def _():
+          ok("(define x 5)", "")
+          ok("(if #f #f)", "")
+          ok("(define x 1) (set! x 2)", "")
+          ok("(cond (#f 1))", "")
+          ok("", "")
+
+      @case("truthiness")
+      def _():
+          ok("(if '() 'yes 'no)", "yes")
+          ok("(if 0 'a 'b)", "a")
+          ok("(not 0)", "#f")
+          ok("(not #f)", "#t")
+
+      @case("closures with private state")
+      def _():
+          ok("""
+          (define (make-counter)
+            (let ((n 0))
+              (lambda () (set! n (+ n 1)) n)))
+          (define a (make-counter))
+          (define b (make-counter))
+          (a) (a) (b)
+          (list (a) (b))""", "(3 2)")
+
+      @case("lexical, not dynamic, scope")
+      def _():
+          ok("(define x 1) (define (f) x) (let ((x 2)) (f))", "1")
+          ok("(define (adder n) (lambda (m) (+ n m))) ((adder 10) 5)", "15")
+
+      @case("variadic and dotted parameters")
+      def _():
+          ok("((lambda args args) 1 2 3)", "(1 2 3)")
+          ok("((lambda args args))", "()")
+          ok("(define (f a . r) (list a r)) (f 1 2 3)", "(1 (2 3))")
+          ok("(define (f a . r) (list a r)) (f 1)", "(1 ())")
+
+      @case("let, let*, letrec, named let")
+      def _():
+          ok("(let ((x 1) (y 2)) (+ x y))", "3")
+          ok("(define x 10) (let ((x 1) (y x)) y)", "10")
+          ok("(let* ((x 1) (y (+ x 1))) (* x y))", "2")
+          ok("(letrec ((ev? (lambda (n) (if (= n 0) #t (od? (- n 1))))) (od? (lambda (n) (if (= n 0) #f (ev? (- n 1)))))) (ev? 10))", "#t")
+          ok("(let loop ((i 0) (acc '())) (if (= i 3) (reverse acc) (loop (+ i 1) (cons i acc))))", "(0 1 2)")
+
+      @case("cond forms")
+      def _():
+          ok("(cond (#f 1) ((+ 1 1)) (else 3))", "2")
+          ok("(cond ((> 1 2) 'a) ((< 1 2) 'b 'c) (else 'd))", "c")
+          ok("(cond (#f 1) (else 'e))", "e")
+
+      @case("and / or values and short-circuit")
+      def _():
+          ok("(or #f 3)", "3")
+          ok("(and 1 2)", "2")
+          ok("(and)", "#t")
+          ok("(or)", "#f")
+          ok("(and 1 #f (car '()))", "#f")
+          ok("(or 1 (car '()))", "1")
+
+      @case("define inside bodies is local")
+      def _():
+          ok("(define (f) (define y 7) y) (define y 1) (list (f) y)", "(7 1)")
+
+      @case("higher-order builtins")
+      def _():
+          ok("(map (lambda (x) (* x x)) '(1 2 3))", "(1 4 9)")
+          ok("(apply + 1 2 '(3 4))", "10")
+          ok("(apply list '())", "()")
+          ok("(append '(1) '(2 3) '() '(4))", "(1 2 3 4)")
+          ok("(append '(1) 2)", "(1 . 2)")
+          ok("(length '(1 2 3))", "3")
+
+      @case("Y combinator")
+      def _():
+          ok("""
+          (define Y (lambda (f) ((lambda (x) (f (lambda (v) ((x x) v)))) (lambda (x) (f (lambda (v) ((x x) v)))))))
+          (define fact (Y (lambda (self) (lambda (n) (if (= n 0) 1 (* n (self (- n 1))))))))
+          (fact 20)""", "2432902008176640000")
+
+      @case("eq? eqv? equal?")
+      def _():
+          ok("(list (eq? 'a 'a) (eq? (list 1) (list 1)) (equal? (list 1 '(2)) (list 1 '(2))) (eq? 100000000000 100000000000) (eq? '() '()))", "(#t #f #t #t #t)")
+          ok("(let ((p (cons 1 2))) (eq? p p))", "#t")
+
+      @case("quasiquote")
+      def _():
+          ok("`(1 ,(+ 1 1) ,@(list 3 4) 5)", "(1 2 3 4 5)")
+          ok("`(a . ,(+ 1 2))", "(a . 3)")
+          ok("`x", "x")
+          ok("`(1 (2 ,(* 3 3)) ,@'())", "(1 (2 9))")
+          ok("(define n 4) `(n ,n)", "(n 4)")
+
+      @case("comments and multiple forms")
+      def _():
+          ok("; comment\n(define a 1) ; trailing\n(define b 2)\n(+ a b) ; done", "3")
+
+      @case("fresh environment per run")
+      def _():
+          run("(define zz 1)")
+          err("zz")
+
+      @case("errors raise LispError")
+      def _():
+          err("undefined-var")
+          err("(car '())")
+          err("(cdr 5)")
+          err("((lambda (x) x))")
+          err("((lambda (x) x) 1 2)")
+          err("(1 2)")
+          err("(+ 1")
+          err(")")
+          err("(quotient 1 0)")
+          err("(set! nope 1)")
+
+      @case("tail recursion 100000 via define", weight=2, timeout=60)
+      def _():
+          ok("(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1)))) (loop 100000 0)", "100000")
+
+      @case("tail recursion 100000 via named let", weight=2, timeout=60)
+      def _():
+          ok("(let loop ((i 0)) (if (< i 100000) (loop (+ i 1)) i))", "100000")
+
+      @case("mutual tail recursion 100000", weight=2, timeout=60)
+      def _():
+          ok("(define (ev? n) (if (= n 0) #t (od? (- n 1)))) (define (od? n) (if (= n 0) #f (ev? (- n 1)))) (ev? 100001)", "#f")
+
+      @case("tail calls through cond / and / or / begin / let", weight=2, timeout=90)
+      def _():
+          ok("(define (f n) (cond ((= n 0) 'done) (else (f (- n 1))))) (f 100000)", "done")
+          ok("(define (g n) (or (= n 0) (g (- n 1)))) (g 100000)", "#t")
+          ok("(define (h n) (and #t (if (= n 0) 'ok (h (- n 1))))) (h 100000)", "ok")
+          ok("(define (k n) (begin 1 (let ((m (- n 1))) (if (< m 0) 'end (k m))))) (k 100000)", "end")
+
+      @case("non-tail recursion depth 250")
+      def _():
+          ok("(define (build n) (if (= n 0) '() (cons n (build (- n 1))))) (length (build 250))", "250")
+          ok("(define (sum n) (if (= n 0) 0 (+ n (sum (- n 1))))) (sum 250)", "31375")
+
+      @case("performance: naive fib 20", timeout=30)
+      def _():
+          ok("(define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (fib 20)", "6765")
+
+      report()

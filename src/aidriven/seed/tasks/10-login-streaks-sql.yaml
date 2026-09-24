@@ -1,0 +1,483 @@
+slug: login-streaks-sql
+title: Longest login streaks in UTC with SQL (gaps and islands)
+category: sql
+difficulty: hard
+expected_artifact: sql
+artifact_names:
+- query.sql
+tags:
+- sql
+- sqlite
+- window-functions
+- gaps-and-islands
+- timezones
+prompt: |
+  Write ONE SQLite query (SQLite 3.31+, window functions allowed, CTEs allowed) for this schema:
+
+  ```sql
+  CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE);
+  CREATE TABLE logins (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    ts TEXT NOT NULL,          -- ISO-8601 local time WITH offset, e.g. '2024-03-01T23:30:00-05:00' or '2024-03-02T04:30:00Z'
+    success INTEGER NOT NULL   -- 1 = successful login, 0 = failed attempt
+  );
+  ```
+
+  A user's *active days* are the UTC calendar dates on which the user has at least one successful login (convert
+  each timestamp to UTC before taking its date; failed attempts do not count). A *streak* is a maximal run of
+  consecutive active days. For every user, find their longest streak; if a user has several streaks of that same
+  maximal length, take the earliest one.
+
+  Return exactly these columns, in this order:
+  1. `username`
+  2. `streak_days` - length in days of the longest streak (0 if the user has no successful login at all)
+  3. `streak_start` - first UTC date of that streak as text 'YYYY-MM-DD' (NULL if none)
+  4. `streak_end` - last UTC date of that streak as text 'YYYY-MM-DD' (NULL if none)
+  5. `logins_in_streak` - number of successful logins (rows, not days) inside that streak (0 if none)
+  6. `rnk` - dense rank of users by `streak_days`, highest first (ties share a rank; users with 0 are ranked too)
+
+  Every user in `users` appears exactly once, including users with no logins or only failed logins.
+  Order the rows by `streak_days` descending, then `username` ascending.
+
+  The query will be executed as-is (one statement, no temporary tables, no parameters) against a hidden dataset
+  with this schema. Deliver it as `query.sql`.
+rubric: |
+  Score 1-10. Correct UTC conversion of offset timestamps (date(ts) in SQLite normalises the offset),
+  deduplication to active days while counting login rows, a correct gaps-and-islands grouping (date minus
+  row_number), tie-break on the earliest streak, LEFT JOIN so every user appears with 0/NULL defaults,
+  DENSE_RANK (not RANK), exact column order/names and ordering, single read-only statement, readability.
+reference_answer: |
+  WITH ok AS (
+      SELECT user_id, date(ts) AS d
+      FROM logins
+      WHERE success = 1
+  ),
+  days AS (
+      SELECT user_id, d, COUNT(*) AS n
+      FROM ok
+      GROUP BY user_id, d
+  ),
+  grouped AS (
+      SELECT user_id, d, n,
+             julianday(d) - ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY d) AS grp
+      FROM days
+  ),
+  streaks AS (
+      SELECT user_id, MIN(d) AS s, MAX(d) AS e, COUNT(*) AS len, SUM(n) AS logins
+      FROM grouped
+      GROUP BY user_id, grp
+  ),
+  best AS (
+      SELECT user_id, s, e, len, logins,
+             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY len DESC, s ASC) AS rn
+      FROM streaks
+  ),
+  per_user AS (
+      SELECT u.username,
+             COALESCE(b.len, 0) AS streak_days,
+             b.s AS streak_start,
+             b.e AS streak_end,
+             COALESCE(b.logins, 0) AS logins_in_streak
+      FROM users u
+      LEFT JOIN best b ON b.user_id = u.id AND b.rn = 1
+  )
+  SELECT username, streak_days, streak_start, streak_end, logins_in_streak,
+         DENSE_RANK() OVER (ORDER BY streak_days DESC) AS rnk
+  FROM per_user
+  ORDER BY streak_days DESC, username ASC;
+checks:
+- kind: sql_result
+  name: result set on the hidden dataset
+  dimension: intelligence
+  weight: 3
+  target: query.sql
+  files:
+    setup.sql: |
+      CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE);
+      CREATE TABLE logins (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), ts TEXT NOT NULL, success INTEGER NOT NULL CHECK (success IN (0, 1)));
+      INSERT INTO users (id, username) VALUES (1, 'amara');
+      INSERT INTO users (id, username) VALUES (2, 'bjorn');
+      INSERT INTO users (id, username) VALUES (3, 'chen');
+      INSERT INTO users (id, username) VALUES (4, 'dario');
+      INSERT INTO users (id, username) VALUES (5, 'esme');
+      INSERT INTO users (id, username) VALUES (6, 'farah');
+      INSERT INTO users (id, username) VALUES (7, 'goran');
+      INSERT INTO users (id, username) VALUES (8, 'hiro');
+      INSERT INTO users (id, username) VALUES (9, 'ines');
+      INSERT INTO users (id, username) VALUES (10, 'jonas');
+      INSERT INTO users (id, username) VALUES (11, 'kemal');
+      INSERT INTO users (id, username) VALUES (12, 'lena');
+      INSERT INTO logins (id, user_id, ts, success) VALUES (283, 10, '2024-02-27T13:51:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (130, 5, '2024-02-28T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (185, 6, '2024-03-18T00:18:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (286, 10, '2024-02-29T01:17:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (237, 8, '2024-02-26T13:05:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (14, 1, '2024-03-05T03:36:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (254, 9, '2024-02-22T20:19:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (66, 3, '2024-03-05T12:50:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (69, 3, '2024-03-06T01:58:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (290, 12, '2024-02-22T10:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (116, 4, '2024-03-25T22:02:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (232, 8, '2024-02-24T13:31:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (223, 7, '2024-03-12T15:07:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (157, 6, '2024-02-28T07:34:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (114, 4, '2024-03-24T17:04:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (112, 4, '2024-03-23T02:01:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (178, 6, '2024-03-13T13:25:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (208, 7, '2024-03-02T03:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (97, 4, '2024-03-10T09:28:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (197, 7, '2024-02-24T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (127, 5, '2024-02-26T01:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (295, 4, '2024-03-23T02:00:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (150, 6, '2024-02-21T20:00:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (99, 4, '2024-03-13T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (191, 7, '2024-02-20T21:03:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (27, 2, '2024-02-28T04:19:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (177, 6, '2024-03-12T13:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (47, 3, '2024-02-20T21:24:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (246, 8, '2024-03-05T05:06:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (221, 7, '2024-03-11T21:39:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (101, 4, '2024-03-14T11:22:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (56, 3, '2024-02-27T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (143, 5, '2024-03-08T04:00:00+05:30', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (211, 7, '2024-03-04T10:08:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (51, 3, '2024-02-24T16:20:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (266, 9, '2024-02-29T18:30:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (154, 6, '2024-02-26T20:24:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (85, 4, '2024-03-02T08:33:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (205, 7, '2024-03-01T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (222, 7, '2024-03-12T16:58:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (132, 5, '2024-02-29T22:49:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (288, 10, '2024-03-02T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (189, 6, '2024-03-20T15:00:00-08:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (88, 4, '2024-03-03T08:00:00+05:30', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (147, 6, '2024-02-20T00:10:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (18, 1, '2024-03-06T12:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (46, 2, '2024-03-15T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (71, 3, '2024-03-07T05:34:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (21, 2, '2024-02-21T01:31:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (206, 7, '2024-03-02T13:12:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (273, 9, '2024-03-06T05:45:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (225, 7, '2024-03-13T03:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (249, 8, '2024-03-09T13:50:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (40, 2, '2024-03-08T19:26:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (93, 4, '2024-03-08T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (79, 4, '2024-02-26T20:42:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (153, 6, '2024-02-25T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (95, 4, '2024-03-09T05:24:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (244, 8, '2024-03-03T05:20:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (118, 4, '2024-03-28T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (203, 7, '2024-02-27T10:47:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (187, 6, '2024-03-19T22:41:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (210, 7, '2024-03-03T10:17:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (36, 2, '2024-03-03T05:00:00-05:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (2, 1, '2024-02-23T17:39:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (91, 4, '2024-03-05T13:44:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (33, 2, '2024-03-01T21:00:00+09:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (228, 7, '2024-03-17T02:45:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (271, 9, '2024-03-05T13:36:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (122, 5, '2024-02-24T18:29:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (70, 3, '2024-03-07T20:58:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (278, 10, '2024-02-23T12:00:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (250, 8, '2024-03-09T10:04:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (89, 4, '2024-03-04T00:58:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (212, 7, '2024-03-05T19:57:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (31, 2, '2024-02-29T15:00:00-05:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (277, 10, '2024-02-23T20:28:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (161, 6, '2024-03-01T03:28:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (171, 6, '2024-03-08T05:19:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (149, 6, '2024-02-21T23:21:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (6, 1, '2024-02-26T16:53:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (13, 1, '2024-03-04T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (162, 6, '2024-03-01T19:08:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (108, 4, '2024-03-18T16:40:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (141, 5, '2024-03-07T02:53:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (247, 8, '2024-03-05T18:36:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (192, 7, '2024-02-20T18:48:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (136, 5, '2024-03-05T05:25:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (137, 5, '2024-03-05T13:09:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (125, 5, '2024-02-26T10:30:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (68, 3, '2024-03-05T01:00:00+09:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (60, 3, '2024-02-29T20:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (24, 2, '2024-02-24T16:57:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (4, 1, '2024-02-23T08:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (100, 4, '2024-03-14T19:55:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (28, 2, '2024-02-28T00:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (115, 4, '2024-03-25T16:14:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (175, 6, '2024-03-12T04:58:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (163, 6, '2024-03-02T02:45:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (84, 4, '2024-03-02T21:09:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (263, 9, '2024-02-27T04:38:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (17, 1, '2024-03-06T17:07:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (80, 4, '2024-02-26T10:41:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (219, 7, '2024-03-10T22:22:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (11, 1, '2024-03-01T19:45:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (188, 6, '2024-03-20T06:59:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (242, 8, '2024-03-01T05:08:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (259, 9, '2024-02-24T14:24:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (129, 5, '2024-02-27T13:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (10, 1, '2024-02-29T02:05:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (98, 4, '2024-03-11T18:04:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (243, 8, '2024-03-02T18:05:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (251, 8, '2024-03-12T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (289, 12, '2024-02-20T10:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (280, 10, '2024-02-25T08:32:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (276, 10, '2024-02-22T19:23:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (106, 4, '2024-03-17T10:27:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (207, 7, '2024-03-02T19:55:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (239, 8, '2024-02-28T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (78, 4, '2024-02-25T12:44:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (57, 3, '2024-02-28T04:08:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (59, 3, '2024-02-29T16:01:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (49, 3, '2024-02-21T12:12:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (124, 5, '2024-02-25T09:51:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (176, 6, '2024-03-12T07:47:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (190, 6, '2024-03-22T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (231, 7, '2024-03-20T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (16, 1, '2024-03-06T14:40:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (202, 7, '2024-02-27T21:53:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (140, 5, '2024-03-07T17:29:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (123, 5, '2024-02-24T11:10:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (54, 3, '2024-02-26T08:24:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (172, 6, '2024-03-09T17:04:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (148, 6, '2024-02-20T08:28:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (134, 5, '2024-03-01T03:41:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (270, 9, '2024-03-05T07:38:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (209, 7, '2024-03-03T09:12:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (29, 2, '2024-02-29T11:59:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (9, 1, '2024-02-28T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (214, 7, '2024-03-06T12:11:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (120, 5, '2024-02-23T07:07:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (193, 7, '2024-02-21T07:42:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (126, 5, '2024-02-26T23:20:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (156, 6, '2024-02-27T10:58:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (139, 5, '2024-03-06T00:23:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (220, 7, '2024-03-11T00:41:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (131, 5, '2024-02-29T07:38:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (216, 7, '2024-03-07T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (256, 9, '2024-02-22T08:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (110, 4, '2024-03-19T15:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (72, 3, '2024-03-07T02:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (104, 4, '2024-03-16T11:05:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (96, 4, '2024-03-10T00:38:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (170, 6, '2024-03-07T17:09:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (240, 8, '2024-02-29T16:27:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (3, 1, '2024-02-23T04:35:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (113, 4, '2024-03-24T14:17:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (227, 7, '2024-03-17T03:23:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (25, 2, '2024-02-24T22:31:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (19, 1, '2024-03-07T07:36:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (274, 9, '2024-03-07T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (200, 7, '2024-02-26T16:55:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (119, 5, '2024-02-22T16:12:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (241, 8, '2024-02-29T03:33:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (92, 4, '2024-03-05T21:00:00+09:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (173, 6, '2024-03-09T13:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (294, 4, '2024-03-22T01:00:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (258, 9, '2024-02-23T15:41:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (204, 7, '2024-02-27T13:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (184, 6, '2024-03-17T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (238, 8, '2024-02-26T14:15:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (41, 2, '2024-03-09T15:39:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (65, 3, '2024-03-04T01:28:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (217, 7, '2024-03-08T18:35:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (144, 5, '2024-03-09T05:06:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (34, 2, '2024-03-02T12:30:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (62, 3, '2024-03-02T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (45, 2, '2024-03-12T02:42:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (194, 7, '2024-02-21T17:45:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (5, 1, '2024-02-25T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (267, 9, '2024-03-02T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (293, 4, '2024-03-20T23:30:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (44, 2, '2024-03-11T01:01:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (201, 7, '2024-02-26T00:15:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (133, 5, '2024-03-01T07:59:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (164, 6, '2024-03-02T19:46:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (195, 7, '2024-02-22T12:56:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (83, 4, '2024-03-01T11:50:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (103, 4, '2024-03-15T05:03:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (26, 2, '2024-02-27T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (292, 12, '2024-02-26T10:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (279, 10, '2024-02-24T18:40:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (7, 1, '2024-02-27T10:07:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (226, 7, '2024-03-16T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (235, 8, '2024-02-25T01:19:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (67, 3, '2024-03-05T02:27:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (255, 9, '2024-02-22T20:57:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (111, 4, '2024-03-22T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (82, 4, '2024-03-01T20:13:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (75, 3, '2024-03-11T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (229, 7, '2024-03-17T16:00:00-08:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (183, 6, '2024-03-15T14:48:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (1, 1, '2024-02-22T06:52:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (166, 6, '2024-03-06T12:45:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (23, 2, '2024-02-23T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (42, 2, '2024-03-10T09:29:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (180, 6, '2024-03-13T03:00:00-05:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (20, 1, '2024-03-10T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (245, 8, '2024-03-04T13:02:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (186, 6, '2024-03-19T09:01:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (61, 3, '2024-03-01T08:50:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (52, 3, '2024-02-25T11:48:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (117, 4, '2024-03-26T17:50:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (146, 5, '2024-03-11T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (48, 3, '2024-02-21T17:44:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (284, 10, '2024-02-27T16:00:00+09:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (15, 1, '2024-03-05T17:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (77, 4, '2024-02-24T15:36:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (169, 6, '2024-03-07T13:07:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (269, 9, '2024-03-04T03:49:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (158, 6, '2024-02-28T21:25:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (86, 4, '2024-03-03T15:15:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (159, 6, '2024-02-29T03:32:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (22, 2, '2024-02-21T23:00:00+05:30', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (81, 4, '2024-02-29T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (155, 6, '2024-02-26T12:08:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (76, 4, '2024-02-24T15:14:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (213, 7, '2024-03-05T05:26:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (168, 6, '2024-03-06T19:00:00-05:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (234, 8, '2024-02-25T20:07:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (39, 2, '2024-03-08T18:45:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (181, 6, '2024-03-14T01:33:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (105, 4, '2024-03-16T08:49:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (138, 5, '2024-03-05T01:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (248, 8, '2024-03-08T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (128, 5, '2024-02-27T19:52:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (174, 6, '2024-03-11T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (102, 4, '2024-03-14T14:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (90, 4, '2024-03-05T16:33:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (253, 9, '2024-02-21T01:55:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (30, 2, '2024-02-29T13:36:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (109, 4, '2024-03-19T23:40:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (160, 6, '2024-02-29T04:00:00+05:30', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (38, 2, '2024-03-07T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (35, 2, '2024-03-03T08:13:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (265, 9, '2024-02-28T13:24:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (272, 9, '2024-03-05T15:00:00-05:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (264, 9, '2024-02-27T12:31:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (287, 10, '2024-03-01T13:34:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (281, 10, '2024-02-25T07:31:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (74, 3, '2024-03-08T05:47:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (58, 3, '2024-02-28T06:00:00+01:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (196, 7, '2024-02-22T13:00:00Z', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (262, 9, '2024-02-26T15:59:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (87, 4, '2024-03-03T03:30:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (233, 8, '2024-02-24T09:44:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (275, 10, '2024-02-22T12:21:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (50, 3, '2024-02-23T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (199, 7, '2024-02-25T17:46:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (236, 8, '2024-02-25T00:00:00+05:30', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (230, 7, '2024-03-18T04:04:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (151, 6, '2024-02-22T22:51:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (218, 7, '2024-03-09T12:07:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (282, 10, '2024-02-26T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (32, 2, '2024-03-01T22:00:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (107, 4, '2024-03-17T15:00:00-08:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (64, 3, '2024-03-03T09:05:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (261, 9, '2024-02-25T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (8, 1, '2024-02-27T17:49:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (121, 5, '2024-02-23T15:28:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (53, 3, '2024-02-25T21:30:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (285, 10, '2024-02-28T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (55, 3, '2024-02-26T17:53:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (257, 9, '2024-02-23T02:58:00+05:30', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (145, 5, '2024-03-09T05:59:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (260, 9, '2024-02-24T06:00:00+09:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (152, 6, '2024-02-22T22:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (43, 2, '2024-03-10T06:01:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (215, 7, '2024-03-06T18:35:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (135, 5, '2024-03-04T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (37, 2, '2024-03-04T00:03:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (252, 9, '2024-02-20T01:11:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (224, 7, '2024-03-13T15:17:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (12, 1, '2024-03-01T02:06:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (291, 12, '2024-02-24T10:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (165, 6, '2024-03-05T12:00:00+00:00', 0);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (73, 3, '2024-03-08T16:45:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (268, 9, '2024-03-03T15:36:00-08:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (198, 7, '2024-02-25T02:02:00+00:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (182, 6, '2024-03-14T03:19:00+01:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (167, 6, '2024-03-06T00:12:00-05:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (63, 3, '2024-03-03T02:56:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (179, 6, '2024-03-13T11:54:00Z', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (142, 5, '2024-03-08T19:57:00+09:00', 1);
+      INSERT INTO logins (id, user_id, ts, success) VALUES (94, 4, '2024-03-09T15:58:00+09:00', 1);
+  expected:
+  - - esme
+    - 9
+    - '2024-02-22'
+    - '2024-03-01'
+    - 13
+    - 1
+  - - dario
+    - 7
+    - '2024-03-20'
+    - '2024-03-26'
+    - 10
+    - 2
+  - - farah
+    - 7
+    - '2024-02-26'
+    - '2024-03-03'
+    - 10
+    - 2
+  - - hiro
+    - 7
+    - '2024-02-29'
+    - '2024-03-06'
+    - 8
+    - 2
+  - - chen
+    - 6
+    - '2024-03-03'
+    - '2024-03-08'
+    - 10
+    - 3
+  - - bjorn
+    - 5
+    - '2024-03-08'
+    - '2024-03-12'
+    - 7
+    - 4
+  - - goran
+    - 5
+    - '2024-03-02'
+    - '2024-03-06'
+    - 9
+    - 4
+  - - ines
+    - 4
+    - '2024-02-26'
+    - '2024-02-29'
+    - 5
+    - 5
+  - - jonas
+    - 4
+    - '2024-02-22'
+    - '2024-02-25'
+    - 7
+    - 5
+  - - amara
+    - 3
+    - '2024-02-29'
+    - '2024-03-02'
+    - 3
+    - 6
+  - - kemal
+    - 0
+    - null
+    - null
+    - 0
+    - 7
+  - - lena
+    - 0
+    - null
+    - null
+    - 0
+    - 7
+- kind: regex
+  name: single read-only statement with ORDER BY
+  dimension: conformity
+  target: query.sql
+  pattern: (?is)^(?!.*\b(?:create|insert|update|delete|drop|alter|attach|pragma)\b)(?!.*;\s*\S).*\border\s+by\b

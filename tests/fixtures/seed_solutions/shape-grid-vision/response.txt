@@ -1,0 +1,10 @@
+Row-by-row inventory:
+r1: c1 yellow triangle, c2 yellow square, c3 yellow triangle, c4 red circle, c6 blue circle, c8 yellow square, c9 yellow triangle
+r2: c1 blue triangle, c3 yellow triangle, c4 blue triangle, c5 red circle, c6 blue square, c7 blue circle, c8 red triangle, c9 yellow triangle
+r3: c1 red square, c4 yellow triangle, c6 red circle, c9 yellow triangle
+r4: c2 blue triangle, c3 yellow circle, c4 yellow triangle, c5 green square, c7 red circle, c8 blue square, c9 red circle
+r5: c4 blue circle, c5 green circle, c6 yellow square, c7 green triangle
+r6: c1 yellow triangle, c3 green circle, c4 red triangle, c6 blue circle, c7 yellow triangle
+r7: c2 red circle, c3 yellow triangle, c4 red triangle, c5 blue square, c7 yellow circle, c8 blue circle, c9 green circle
+
+FINAL ANSWER: 16,10,21,5,4
